@@ -5,10 +5,17 @@ import (
 )
 
 type DealSide string
+type Source string
 
 const (
 	DealSideBuy  DealSide = "buy"
 	DealSideSell DealSide = "sell"
+)
+
+const (
+	SorceCBounds Source = "cbounds"
+	SourceRuData Source = "rudata"
+	SourceMoex   Source = "moex"
 )
 
 type Deal struct {
@@ -19,5 +26,5 @@ type Deal struct {
 	Instrument   Instrument
 	Side         DealSide `gorm:"type:text;not null;check:deal_side_valid,side IN ('buy', 'sell')"`
 	Quantity     int64    `gorm:"type:bigint;not null"`
-	Source       string   `gorm:"type:text"`
+	Source       Source   `gorm:"type:text"`
 }

@@ -10,7 +10,7 @@ type MarketData struct {
 	InstrumentID uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Instrument   Instrument
 	TradeDate    time.Time `gorm:"type:date;primaryKey"`
-	Source       string    `gorm:"type:text;primaryKey"`
+	Source       Source    `gorm:"type:text;primaryKey"`
 	PriceType    string    `gorm:"type:text;not null"`
 	PriceClean   *float64  `gorm:"type:numeric(12,6)"`
 	AccruedInt   *float64  `gorm:"type:numeric(18,6)"`

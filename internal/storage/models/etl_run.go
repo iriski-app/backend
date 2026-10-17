@@ -17,7 +17,7 @@ const (
 
 type ETLRun struct {
 	ID           uuid.UUID  `gorm:"type:uuid;primaryKey"`
-	Source       string     `gorm:"type:text;not null"`
+	Source       Source     `gorm:"type:text;not null"`
 	FinishedAt   *time.Time `gorm:"type:timestamptz"`
 	Status       ETLStatus  `gorm:"type:text;not null;check:etl_status_valid,status IN ('running','success','partial_success','failed')"`
 	RowsLoaded   int        `gorm:"type:integer"`
