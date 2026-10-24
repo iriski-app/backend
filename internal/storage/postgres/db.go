@@ -13,7 +13,7 @@ func CreateTables(db *gorm.DB) error {
 		&models.Basket{},
 		&models.CalcResult{},
 		&models.CalcRun{},
-		&models.Deal{},
+		&models.BasketItem{},
 		&models.ETLRun{},
 		&models.Instrument{},
 		&models.LLMExplanation{},

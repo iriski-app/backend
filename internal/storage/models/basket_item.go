@@ -18,7 +18,7 @@ const (
 	SourceMoex   Source = "moex"
 )
 
-type Deal struct {
+type BasketItem struct {
 	ID           uuid.UUID `gorm:"type:uuid;primaryKey"`
 	BasketID     uuid.UUID `gorm:"type:uuid;not null"`
 	Basket       Basket
@@ -26,5 +26,4 @@ type Deal struct {
 	Instrument   Instrument
 	Side         DealSide `gorm:"type:text;not null;check:deal_side_valid,side IN ('buy', 'sell')"`
 	Quantity     int64    `gorm:"type:bigint;not null"`
-	Source       Source   `gorm:"type:text"`
 }
