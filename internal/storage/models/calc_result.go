@@ -10,8 +10,6 @@ type CalcResult struct {
 	ID           uuid.UUID `gorm:"type:uuid;primaryKey"`
 	CalcRunID    uuid.UUID `gorm:"type:uuid;not null"`
 	CalcRun      CalcRun
-	DealID       uuid.UUID `gorm:"type:uuid"`
-	Deal         Deal
 	InstrumentID uuid.UUID `gorm:"type:uuid;not null"`
 	Instrument   Instrument
 	Side         DealSide   `gorm:"type:text;not null;check:deal_side_valid,side IN ('buy', 'sell')"`
@@ -29,5 +27,4 @@ type CalcResult struct {
 	DV01Low      *float64   `gorm:"type:numeric(20,6)"`
 	DV01High     *float64   `gorm:"type:numeric(20,6)"`
 	DataSource   Source     `gorm:"type:text"`
-	Error        *string    `gorm:"type:text"`
 }
