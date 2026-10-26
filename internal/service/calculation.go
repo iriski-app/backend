@@ -10,6 +10,68 @@ import (
 	"github.com/iriski-app/backend/internal/storage/models"
 )
 
+func (s *Service) CalculateSingle(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	isin string,
+	side models.DealSide,
+	quantity int64) (models.CalcRun, []models.CalcResult, error) {
+	instrument, err := s.Store.GetInstrument(ctx, isin)
+	if err != nil {
+		return models.CalcRun{}, []models.CalcResult{}, err
+	}
+	positions := []PositionInput{{
+		InstrumentID: instrument.ID,
+		Side:         side,
+		Quantity:     quantity,
+	}}
+	calcRun, calcResults, err := s.CalculatePositions(
+		ctx,
+		sessionID,
+		positions,
+	)
+	if err != nil {
+		return models.CalcRun{}, []models.CalcResult{}, err
+	}
+
+	return calcRun, calcResults, nil
+
+}
+
+func (s *Service) CalculateBasket(
+	ctx context.Context,
+	sessionID uuid.UUID) (models.CalcRun, []models.CalcResult, error) {
+	basket, err := s.Store.GetBasketBySessionID(ctx, sessionID)
+	if err != nil {
+		return models.CalcRun{}, []models.CalcResult{}, err
+	}
+	basketItems, err := s.Store.GetBasketItems(ctx, basket.ID)
+	if err != nil {
+		return models.CalcRun{}, []models.CalcResult{}, err
+	}
+
+	positions := make([]PositionInput, len(basketItems))
+	for i, basketItem := range basketItems {
+		positions[i] = PositionInput{
+			InstrumentID: basketItem.InstrumentID,
+			Side:         basketItem.Side,
+			Quantity:     basketItem.Quantity,
+		}
+	}
+
+	calcRun, calcResults, err := s.CalculatePositions(
+		ctx,
+		sessionID,
+		positions,
+	)
+
+	if err != nil {
+		return models.CalcRun{}, []models.CalcResult{}, err
+	}
+
+	return calcRun, calcResults, nil
+}
+
 func (s *Service) CalculatePositions(
 	ctx context.Context,
 	sessionID uuid.UUID,
