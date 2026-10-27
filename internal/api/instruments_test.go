@@ -90,8 +90,7 @@ func TestGetInstrument(t *testing.T) {
 				isin = instrument.ISIN
 			}
 			handler := NewHandler(service.NewService(store))
-			mux := http.NewServeMux()
-			mux.HandleFunc("GET /api/v1/instruments/{isin}", handler.GetInstrument)
+			mux := NewRouter(handler)
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/instruments/"+isin+tt.query, nil)
 			response := httptest.NewRecorder()
 			mux.ServeHTTP(response, request)

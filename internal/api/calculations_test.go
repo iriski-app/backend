@@ -121,8 +121,7 @@ func serveCalculation(t *testing.T, store *calculationTestStore, body string, se
 		}
 	}()
 	handler := NewHandler(service.NewService(store))
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/risk-calculations", handler.Calculation)
+	mux := NewRouter(handler)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/risk-calculations", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	if sessionCookie != nil {
@@ -407,8 +406,7 @@ func TestGetCalculation(t *testing.T) {
 				session = uuid.NewString()
 			}
 			handler := NewHandler(service.NewService(store))
-			mux := http.NewServeMux()
-			mux.HandleFunc("GET /api/v1/risk-calculations/{id}", handler.GetCalculation)
+			mux := NewRouter(handler)
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/risk-calculations/"+calcID, nil)
 			if !tt.missingCookie {
 				request.AddCookie(&http.Cookie{Name: "session_id", Value: session})
@@ -449,9 +447,7 @@ func TestGetCalculation(t *testing.T) {
 func TestCalculationCreateThenGetSnapshot(t *testing.T) {
 	store, positions := newCalculationTestStore()
 	handler := NewHandler(service.NewService(store))
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/risk-calculations", handler.Calculation)
-	mux.HandleFunc("GET /api/v1/risk-calculations/{id}", handler.GetCalculation)
+	mux := NewRouter(handler)
 	body, err := json.Marshal(CalculationRequest{Positions: positions})
 	if err != nil {
 		t.Fatal(err)
