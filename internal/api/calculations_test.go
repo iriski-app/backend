@@ -30,6 +30,8 @@ type calculationTestStore struct {
 	saveCalls    int
 	savedRun     models.CalcRun
 	savedResults []models.CalcResult
+	getErr       error
+	getCalls     int
 }
 
 func (s *calculationTestStore) GetInstrument(_ context.Context, isin string) (models.Instrument, error) {
@@ -71,6 +73,17 @@ func (s *calculationTestStore) SaveCalculation(_ context.Context, run models.Cal
 	s.savedRun = run
 	s.savedResults = append([]models.CalcResult(nil), results...)
 	return s.saveErr
+}
+
+func (s *calculationTestStore) GetCalculation(_ context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error) {
+	s.getCalls++
+	if s.getErr != nil {
+		return models.CalcRun{}, nil, s.getErr
+	}
+	if s.savedRun.ID != calcID || s.savedRun.SessionID != sessionID {
+		return models.CalcRun{}, nil, gorm.ErrRecordNotFound
+	}
+	return s.savedRun, s.savedResults, nil
 }
 
 func newCalculationTestStore() (*calculationTestStore, []Position) {
@@ -342,5 +355,141 @@ func assertCalculationNumber(t *testing.T, field string, got *float64, want floa
 	}
 	if math.IsNaN(*got) || math.Abs(*got-want) > 1e-9 {
 		t.Errorf("%s = %.12f, want %.12f", field, *got, want)
+	}
+}
+
+func TestGetCalculation(t *testing.T) {
+	storageErr := errors.New("internal calculation lookup failure")
+	tests := []struct {
+		name          string
+		missingCookie bool
+		invalidCookie bool
+		emptyCookie   bool
+		invalidID     bool
+		unknownID     bool
+		foreign       bool
+		getErr        error
+		wantStatus    int
+		wantCode      string
+		wantCalls     int
+	}{
+		{name: "saved calculation", wantStatus: 200, wantCalls: 1},
+		{name: "missing session", missingCookie: true, wantStatus: 404, wantCode: "calculation_not_found"},
+		{name: "invalid session", invalidCookie: true, wantStatus: 400, wantCode: "session_error"},
+		{name: "empty session", emptyCookie: true, wantStatus: 400, wantCode: "session_error"},
+		{name: "invalid calculation ID", invalidID: true, wantStatus: 400, wantCode: "invalid_calculation_id"},
+		{name: "unknown calculation", unknownID: true, wantStatus: 404, wantCode: "calculation_not_found", wantCalls: 1},
+		{name: "foreign session", foreign: true, wantStatus: 404, wantCode: "calculation_not_found", wantCalls: 1},
+		{name: "wrapped not found", getErr: fmt.Errorf("lookup: %w", gorm.ErrRecordNotFound), wantStatus: 404, wantCode: "calculation_not_found", wantCalls: 1},
+		{name: "storage failure", getErr: storageErr, wantStatus: 500, wantCode: "internal_error", wantCalls: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &calculationTestStore{
+				savedRun: models.CalcRun{
+					ID: uuid.New(), SessionID: uuid.New(), Status: models.CalcStatusSuccess,
+					AsOfDate: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
+				},
+				getErr: tt.getErr,
+			}
+			calcID := store.savedRun.ID.String()
+			if tt.invalidID {
+				calcID = "invalid-uuid"
+			} else if tt.unknownID {
+				calcID = uuid.NewString()
+			}
+			session := store.savedRun.SessionID.String()
+			if tt.invalidCookie {
+				session = "invalid-uuid"
+			} else if tt.emptyCookie {
+				session = ""
+			} else if tt.foreign {
+				session = uuid.NewString()
+			}
+			handler := NewHandler(service.NewService(store))
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /api/v1/risk-calculations/{id}", handler.GetCalculation)
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/risk-calculations/"+calcID, nil)
+			if !tt.missingCookie {
+				request.AddCookie(&http.Cookie{Name: "session_id", Value: session})
+			}
+			response := httptest.NewRecorder()
+			mux.ServeHTTP(response, request)
+
+			if store.getCalls != tt.wantCalls {
+				t.Errorf("GetCalculation called %d times, want %d", store.getCalls, tt.wantCalls)
+			}
+			if store.saveCalls != 0 || response.Header().Get("Set-Cookie") != "" {
+				t.Error("GET must not save calculations or create a session")
+			}
+			if tt.wantCode != "" {
+				assertCalculationHTTPError(t, response, tt.wantStatus, tt.wantCode)
+				if strings.Contains(response.Body.String(), storageErr.Error()) {
+					t.Error("response exposes internal storage error details")
+				}
+				return
+			}
+			if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("unexpected response: status=%d, body=%s", response.Code, response.Body.String())
+			}
+			var result CalculationResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.ID != store.savedRun.ID || result.Status != store.savedRun.Status || !result.AsOfDate.Equal(store.savedRun.AsOfDate) {
+				t.Error("response differs from the saved calculation")
+			}
+			if result.Positions == nil || len(result.Positions) != 0 {
+				t.Error("empty results must be serialized as an empty array")
+			}
+		})
+	}
+}
+
+func TestCalculationCreateThenGetSnapshot(t *testing.T) {
+	store, positions := newCalculationTestStore()
+	handler := NewHandler(service.NewService(store))
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/risk-calculations", handler.Calculation)
+	mux.HandleFunc("GET /api/v1/risk-calculations/{id}", handler.GetCalculation)
+	body, err := json.Marshal(CalculationRequest{Positions: positions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/risk-calculations", strings.NewReader(string(body)))
+	created := httptest.NewRecorder()
+	mux.ServeHTTP(created, createRequest)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("creation status = %d; body: %s", created.Code, created.Body.String())
+	}
+	httpResponse := created.Result()
+	defer func() { _ = httpResponse.Body.Close() }()
+	cookies := httpResponse.Cookies()
+	if len(cookies) != 1 {
+		t.Fatal("creation must return a session cookie")
+	}
+
+	store.instruments = nil
+	store.marketData = nil
+	for i := 0; i < 2; i++ {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/risk-calculations/"+store.savedRun.ID.String(), nil)
+		request.AddCookie(cookies[0])
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("lookup status = %d; body: %s", response.Code, response.Body.String())
+		}
+		if response.Body.String() != created.Body.String() {
+			t.Errorf("saved snapshot differs from creation response:\ncreated: %s\nloaded: %s", created.Body.String(), response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), store.savedRun.SessionID.String()) {
+			t.Error("response must not expose the session ID")
+		}
+		if response.Header().Get("Set-Cookie") != "" {
+			t.Error("GET must preserve the existing session")
+		}
+	}
+	if store.saveCalls != 1 || store.getCalls != 2 {
+		t.Errorf("save calls = %d, get calls = %d; want 1, 2", store.saveCalls, store.getCalls)
 	}
 }

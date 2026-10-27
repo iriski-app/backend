@@ -13,6 +13,7 @@ type Storage interface {
 	GetInstrumentByID(ctx context.Context, id uuid.UUID) (models.Instrument, error)
 	GetMarketData(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
 	SaveCalculation(ctx context.Context, calcRun models.CalcRun, calcResults []models.CalcResult) error
+	GetCalculation(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error)
 
 	CreateBasket(ctx context.Context, sessionID uuid.UUID) (models.Basket, error)
 	GetBasketBySessionID(ctx context.Context, sessionID uuid.UUID) (models.Basket, error)

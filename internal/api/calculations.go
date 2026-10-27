@@ -12,6 +12,55 @@ import (
 	"gorm.io/gorm"
 )
 
+func (h *Handler) GetCalculation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	calcID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest,
+			"invalid_calculation_id", "Некорректный ID расчёта", nil)
+		return
+	}
+
+	cookie, err := r.Cookie("session_id")
+	if errors.Is(err, http.ErrNoCookie) {
+		writeError(w, http.StatusNotFound,
+			"calculation_not_found", "Расчёт не найден", nil)
+		return
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to read session cookie", "error", err)
+		writeError(w, http.StatusInternalServerError,
+			"internal_error", "Внутренняя ошибка сервера", nil)
+		return
+	}
+	sessionID, err := uuid.Parse(cookie.Value)
+	if err != nil {
+		writeError(w, http.StatusBadRequest,
+			"session_error", "Некорректный ID сессии", nil)
+		return
+	}
+
+	calcRun, calcResults, err := h.Service.GetCalculation(ctx, sessionID, calcID)
+	if err != nil {
+		if errors.Is(err, service.ErrCalculationNotFound) {
+			writeError(w, http.StatusNotFound,
+				"calculation_not_found", "Расчёт не найден", nil)
+		} else {
+			slog.ErrorContext(ctx, "get calculation failed", "error", err)
+			writeError(w, http.StatusInternalServerError,
+				"internal_error", "Внутренняя ошибка сервера", nil)
+		}
+		return
+	}
+
+	response := newCalculationResponse(calcRun, calcResults)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.ErrorContext(ctx, "failed to encode calculation response", "error", err)
+	}
+}
+
 func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	cookie, err := r.Cookie("session_id")
@@ -128,6 +177,15 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	response := newCalculationResponse(calcRun, calcResults)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.ErrorContext(ctx, "failed to encode calculation response", "error", err)
+	}
+}
+
+func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcResult) CalculationResponse {
 	response := CalculationResponse{
 		ID:           calcRun.ID,
 		Status:       calcRun.Status,
@@ -149,9 +207,5 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		slog.ErrorContext(ctx, "failed to encode calculation response", "error", err)
-	}
+	return response
 }
