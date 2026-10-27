@@ -23,7 +23,6 @@ type CalcResult struct {
 	Convexity    *float64   `gorm:"type:numeric(18,8)"`
 	DV01         *float64   `gorm:"type:numeric(20,6)"`
 	FxRate       *float64   `gorm:"type:numeric(18,8)"`
-	DV01Rub      *float64   `gorm:"type:numeric(20,6)"`
 	DV01Low      *float64   `gorm:"type:numeric(20,6)"`
 	DV01High     *float64   `gorm:"type:numeric(20,6)"`
 	DataSource   Source     `gorm:"type:text"`
