@@ -10,3 +10,10 @@ type PositionInput struct {
 	Side         models.DealSide
 	Quantity     int64
 }
+
+type InstrumentInfo struct {
+	Instrument          models.Instrument
+	MarketData          *models.MarketData
+	ReadyForCalculation bool
+	MissingParameters   []string
+}
