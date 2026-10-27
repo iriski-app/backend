@@ -19,6 +19,7 @@ func NewRouter(h *Handler) http.Handler {
 	}))
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/healthz", h.Healthz)
 		r.Get("/instruments/{isin}", h.GetInstrument)
 		r.Post("/risk-calculations", h.Calculation)
 		r.Get("/risk-calculations/{id}", h.GetCalculation)
