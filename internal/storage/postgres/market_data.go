@@ -6,7 +6,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"gorm.io/gorm/clause"
 )
+
+func (s *Store) UpsertMarketData(ctx context.Context, marketData models.MarketData) error {
+	return s.db.WithContext(ctx).Omit(clause.Associations).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "instrument_id"},
+			{Name: "trade_date"},
+			{Name: "source"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"price_type", "price_clean", "accrued_int", "duration_mod",
+			"convexity", "ytm", "num_trades", "loaded_at",
+		}),
+	}).Create(&marketData).Error
+}
 
 func (s *Store) GetMarketData(
 	ctx context.Context,
