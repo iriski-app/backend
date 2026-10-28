@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/iriski-app/backend/internal/clients/moex"
+	"github.com/iriski-app/backend/internal/collector"
 	"github.com/iriski-app/backend/internal/storage/models"
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/driver/postgres"
@@ -156,6 +158,220 @@ func TestUpsertMarketDataDoesNotCreateInstrument(t *testing.T) {
 	var dbErr *pgconn.PgError
 	if !errors.As(err, &dbErr) || dbErr.Code != "23503" {
 		t.Fatalf("got %v, want foreign key violation", err)
+	}
+}
+
+func TestSaveMarketDataPreservesInstrumentID(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	existing, err := store.UpsertInstrument(ctx, ingestionInstrument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	instrument := ingestionInstrument()
+	instrument.ID = uuid.New()
+	instrument.Name = "Updated bond"
+	data := ingestionMarketData(instrument.ID)
+	if err := store.SaveMarketData(ctx, instrument, data); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.GetInstrument(ctx, instrument.ISIN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ID != existing.ID || stored.Name != "Updated bond" {
+		t.Fatalf("unexpected saved instrument: %+v", stored)
+	}
+	marketData, err := store.GetMarketData(ctx, existing.ID, data.Source, data.TradeDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marketData.InstrumentID != existing.ID || marketData.PriceClean == nil || *marketData.PriceClean != *data.PriceClean {
+		t.Fatalf("market data uses wrong instrument: %+v", marketData)
+	}
+}
+
+func TestSaveMarketDataRollback(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		store := newIngestionStore(t)
+		ctx := context.Background()
+		instrument := ingestionInstrument()
+		if existing {
+			if _, err := store.UpsertInstrument(ctx, instrument); err != nil {
+				t.Fatal(err)
+			}
+		}
+		instrument.ID = uuid.New()
+		instrument.Name = "Must be rolled back"
+		data := ingestionMarketData(instrument.ID)
+		price := 10000000000000.0
+		data.PriceClean = &price
+		err := store.SaveMarketData(ctx, instrument, data)
+		var dbErr *pgconn.PgError
+		if !errors.As(err, &dbErr) || dbErr.Code != "22003" {
+			t.Fatalf("got %v, want numeric overflow", err)
+		}
+		stored, err := store.GetInstrument(ctx, instrument.ISIN)
+		if existing {
+			if err != nil || stored.Name != "Test bond" {
+				t.Fatalf("instrument update was not rolled back: %+v, error: %v", stored, err)
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("new instrument was not rolled back: %+v, error: %v", stored, err)
+		}
+		var count int64
+		if err := store.db.Model(&models.MarketData{}).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("market data was not rolled back: %d rows", count)
+		}
+	}
+}
+
+func TestLargeBondPriceMigration(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	if err := CreateTables(store.db); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Exec("ALTER TABLE market_data ALTER COLUMN price_clean TYPE numeric(12,6)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Exec("ALTER TABLE calc_results ALTER COLUMN price_clean TYPE numeric(12,6)").Error; err != nil {
+		t.Fatal(err)
+	}
+	instrument, err := store.UpsertInstrument(ctx, ingestionInstrument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := ingestionMarketData(instrument.ID)
+	if err := store.UpsertMarketData(ctx, data); err != nil {
+		t.Fatal(err)
+	}
+	run := models.CalcRun{
+		ID:        uuid.New(),
+		SessionID: uuid.New(),
+		AsOfDate:  data.TradeDate,
+		Status:    models.CalcStatusSuccess,
+		CreatedAt: data.LoadedAt,
+	}
+	if err := store.db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := models.CalcResult{
+		ID:           uuid.New(),
+		CalcRunID:    run.ID,
+		InstrumentID: instrument.ID,
+		Side:         models.DealSideBuy,
+		Quantity:     1,
+		Currency:     "RUB",
+		PriceClean:   data.PriceClean,
+	}
+	if err := store.db.Create(&snapshot).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateTables(store.db); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.GetMarketData(ctx, instrument.ID, data.Source, data.TradeDate)
+	if err != nil || stored.PriceClean == nil || *stored.PriceClean != 1000 {
+		t.Fatalf("migration changed old market data: %+v, error: %v", stored, err)
+	}
+	var oldSnapshot models.CalcResult
+	if err := store.db.First(&oldSnapshot, "id = ?", snapshot.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if oldSnapshot.PriceClean == nil || *oldSnapshot.PriceClean != 1000 {
+		t.Fatalf("migration changed old snapshot: %+v", oldSnapshot)
+	}
+	price := 9200000.0
+	data.PriceClean = &price
+	if err := store.SaveMarketData(ctx, instrument, data); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = store.GetMarketData(ctx, instrument.ID, data.Source, data.TradeDate)
+	if err != nil || stored.PriceClean == nil || *stored.PriceClean != price {
+		t.Fatalf("large market price was not saved: %+v, error: %v", stored, err)
+	}
+	snapshot.ID = uuid.New()
+	snapshot.PriceClean = &price
+	if err := store.db.Create(&snapshot).Error; err != nil {
+		t.Fatal(err)
+	}
+	var storedSnapshot models.CalcResult
+	if err := store.db.First(&storedSnapshot, "id = ?", snapshot.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedSnapshot.PriceClean == nil || *storedSnapshot.PriceClean != price {
+		t.Fatalf("large snapshot price was not saved: %+v", storedSnapshot)
+	}
+}
+
+func TestCollectorRunStorage(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	service := collector.NewService(store, &ingestionClientFake{})
+	date := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	var instrumentID uuid.UUID
+	var previousRunID uuid.UUID
+	for i := 0; i < 2; i++ {
+		result, err := service.Run(ctx, date)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != models.ETLStatusSuccess || result.RowsLoaded != 1 || result.RowsRejected != 0 || result.ID == previousRunID {
+			t.Fatalf("unexpected collector result: %+v", result)
+		}
+		previousRunID = result.ID
+		instrument, err := store.GetInstrument(ctx, "RU000A0JS3W6")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			instrumentID = instrument.ID
+		} else if instrument.ID != instrumentID {
+			t.Fatalf("instrument ID changed after rerun: %s", instrument.ID)
+		}
+		data, err := store.GetMarketData(ctx, instrument.ID, models.SourceMoex, date)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if data.PriceClean == nil || *data.PriceClean != 990 || data.DurationMod == nil || *data.DurationMod != 1.6 {
+			t.Fatalf("unexpected normalized market data: %+v", data)
+		}
+		var run models.ETLRun
+		if err := store.db.First(&run, "id = ?", result.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if run.Status != models.ETLStatusSuccess || run.FinishedAt == nil || run.RowsLoaded != 1 || run.RowsRejected != 0 {
+			t.Fatalf("unexpected saved run: %+v", run)
+		}
+	}
+	var count int64
+	if err := store.db.Model(&models.MarketData{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("rerun created duplicate market data: %d", count)
+	}
+}
+
+func TestCollectorRunWithoutQuotes(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	service := collector.NewService(store, &ingestionClientFake{noQuotes: true})
+	date := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	result, err := service.Run(ctx, date)
+	if err != nil || result.Status != models.ETLStatusSuccess || result.RowsLoaded != 0 {
+		t.Fatalf("unexpected result: %+v, error: %v", result, err)
+	}
+	instrument, err := store.GetInstrument(ctx, "RU000A0JS3W6")
+	if err != nil || instrument.ID == uuid.Nil {
+		t.Fatalf("instrument was not saved: %+v, error: %v", instrument, err)
+	}
+	if _, err := store.GetMarketData(ctx, instrument.ID, models.SourceMoex, date); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("unexpected market data: %v", err)
 	}
 }
 
@@ -367,3 +583,58 @@ func ingestionMarketData(instrumentID uuid.UUID) models.MarketData {
 		LoadedAt:     time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC),
 	}
 }
+
+type ingestionClientFake struct {
+	noQuotes bool
+}
+
+func (c *ingestionClientFake) GetInstruments(ctx context.Context, board string) ([]moex.Instrument, error) {
+	if board != "TQOB" {
+		return nil, nil
+	}
+	instrument := ingestionInstrument()
+	period := 182
+	return []moex.Instrument{{
+		SECID:         "BOND1",
+		ISIN:          instrument.ISIN,
+		Name:          instrument.Name,
+		BoardID:       board,
+		FaceValue:     &instrument.FaceValue,
+		FaceUnit:      "SUR",
+		CurrencyID:    "SUR",
+		CouponPeriod:  &period,
+		CouponPercent: instrument.CouponRate,
+		MaturityDate:  "2027-02-03",
+		BondType:      "Облигация с фиксированным (известным) купоном",
+		CouponDetails: "Фиксированный с известными купонами",
+		FaceValueType: "Фиксированный",
+	}}, nil
+}
+
+func (c *ingestionClientFake) GetMarketData(ctx context.Context, board string, date time.Time) ([]moex.MarketData, error) {
+	if board != "TQOB" || c.noQuotes {
+		return nil, nil
+	}
+	closePrice := 99.0
+	nominal := 1000.0
+	duration := 730.0
+	yield := 25.0
+	numTrades := 12
+	return []moex.MarketData{{
+		SECID:         "BOND1",
+		BoardID:       board,
+		TradeDate:     date.Format("2006-01-02"),
+		Close:         &closePrice,
+		FaceValue:     &nominal,
+		FaceUnit:      "SUR",
+		CurrencyID:    "SUR",
+		Duration:      &duration,
+		YieldClose:    &yield,
+		NumTrades:     &numTrades,
+		BondType:      "Облигация с фиксированным (известным) купоном",
+		CouponDetails: "Фиксированный с известными купонами",
+		FaceValueType: "Фиксированный",
+	}}, nil
+}
+
+var _ collector.Storage = (*Store)(nil)
