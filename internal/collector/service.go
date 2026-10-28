@@ -164,10 +164,11 @@ func (s *Service) collectBoard(
 		if err := ctx.Err(); err != nil {
 			return records, rejected, errors.Join(collectErr, err)
 		}
-		secID := strings.TrimSpace(data.SECID)
-		if data.NumTrades == nil || *data.NumTrades != 0 {
-			traded[secID] = true
+		if data.NumTrades != nil && *data.NumTrades == 0 {
+			continue
 		}
+		secID := strings.TrimSpace(data.SECID)
+		traded[secID] = true
 		sourceInstrument, exists := instrumentsBySECID[secID]
 		if !exists || duplicates[secID] {
 			rejected++

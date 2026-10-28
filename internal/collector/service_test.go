@@ -94,6 +94,13 @@ func TestRunSkipsUnsupportedRows(t *testing.T) {
 				client.history["TQOB"][0].NumTrades = testInt(0)
 			},
 		},
+		{
+			name: "no trades without reference",
+			change: func(client *collectorClientFake) {
+				client.history["TQOB"][0].NumTrades = testInt(0)
+				client.instruments["TQOB"] = nil
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
