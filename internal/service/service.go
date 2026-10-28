@@ -11,6 +11,7 @@ import (
 type Storage interface {
 	GetInstrument(ctx context.Context, isin string) (models.Instrument, error)
 	GetInstrumentByID(ctx context.Context, id uuid.UUID) (models.Instrument, error)
+	GetLatestMarketDate(ctx context.Context, source models.Source, cutoff time.Time) (time.Time, error)
 	GetMarketData(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
 	SaveCalculation(ctx context.Context, calcRun models.CalcRun, calcResults []models.CalcResult) error
 	GetCalculation(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error)

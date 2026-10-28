@@ -638,3 +638,38 @@ func (c *ingestionClientFake) GetMarketData(ctx context.Context, board string, d
 }
 
 var _ collector.Storage = (*Store)(nil)
+
+func TestGetLatestMarketDate(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	instrument, err := store.UpsertInstrument(ctx, ingestionInstrument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	date := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	for _, offset := range []int{0, 3} {
+		data := ingestionMarketData(instrument.ID)
+		data.TradeDate = date.AddDate(0, 0, offset)
+		if err := store.UpsertMarketData(ctx, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := ingestionMarketData(instrument.ID)
+	other.Source = models.SourceRuData
+	other.TradeDate = date.AddDate(0, 0, 1)
+	if err := store.UpsertMarketData(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetLatestMarketDate(ctx, models.SourceMoex, date.AddDate(0, 0, 2))
+	if err != nil || !got.Equal(date) {
+		t.Fatalf("got %v, %v; want %v", got, err, date)
+	}
+	got, err = store.GetLatestMarketDate(ctx, models.SourceMoex, date.AddDate(0, 0, 3))
+	if err != nil || !got.Equal(date.AddDate(0, 0, 3)) {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	_, err = store.GetLatestMarketDate(ctx, models.SourceMoex, date.AddDate(0, 0, -1))
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("got %v, want record not found", err)
+	}
+}

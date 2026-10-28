@@ -33,7 +33,23 @@ func (s *Service) GetInstrument(
 		return InstrumentInfo{}, err
 	}
 	missingParams := make([]string, 0, 4)
-	marketData, err := s.Store.GetMarketData(ctx, instrument.ID, source, time.Now())
+	date, err := s.Store.GetLatestMarketDate(ctx, source, marketDateCutoff(time.Now()))
+	if err == nil {
+		marketData, dataErr := s.Store.GetMarketData(ctx, instrument.ID, source, date)
+		if dataErr == nil {
+			if marketData.PriceClean == nil {
+				missingParams = append(missingParams, "price_clean")
+			}
+			if marketData.AccruedInt == nil {
+				missingParams = append(missingParams, "accrued_int")
+			}
+			if marketData.DurationMod == nil {
+				missingParams = append(missingParams, "duration_mod")
+			}
+			return InstrumentInfo{Instrument: instrument, MarketData: &marketData, ReadyForCalculation: len(missingParams) == 0, MissingParameters: missingParams}, nil
+		}
+		err = dataErr
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		missingParams = append(missingParams, "market_data")
 		return InstrumentInfo{
@@ -42,26 +58,6 @@ func (s *Service) GetInstrument(
 			ReadyForCalculation: false,
 			MissingParameters:   missingParams,
 		}, nil
-	} else if err != nil {
-		return InstrumentInfo{}, err
-	} else {
-		if marketData.PriceClean == nil {
-			missingParams = append(missingParams, "price_clean")
-		}
-		if marketData.AccruedInt == nil {
-			missingParams = append(missingParams, "accrued_int")
-		}
-		if marketData.DurationMod == nil {
-			missingParams = append(missingParams, "duration_mod")
-		}
 	}
-
-	ready := len(missingParams) == 0
-
-	return InstrumentInfo{
-		Instrument:          instrument,
-		MarketData:          &marketData,
-		ReadyForCalculation: ready,
-		MissingParameters:   missingParams,
-	}, nil
+	return InstrumentInfo{}, err
 }

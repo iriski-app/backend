@@ -48,3 +48,11 @@ func (s *Store) GetLatestMarketData(
 	).Order("trade_date DESC").First(&marketData).Error
 	return marketData, err
 }
+
+func (s *Store) GetLatestMarketDate(ctx context.Context, source models.Source, cutoff time.Time) (time.Time, error) {
+	var marketData models.MarketData
+	err := s.db.WithContext(ctx).Select("trade_date").Where(
+		"source = ? AND trade_date <= ?", source, cutoff.Format("2006-01-02"),
+	).Order("trade_date DESC").First(&marketData).Error
+	return marketData.TradeDate, err
+}
