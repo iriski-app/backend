@@ -15,11 +15,20 @@ type GetInstrumentResponse struct {
 	IssuerName          string     `json:"issuer_name"`
 	Currency            string     `json:"currency"`
 	FaceValue           float64    `json:"face_value"`
+	CouponType          string     `json:"coupon_type"`
+	CouponFreq          int        `json:"coupon_freq"`
+	CouponRate          *float64   `json:"coupon_rate"`
+	MaturityDate        *string    `json:"maturity_date"`
+	PriceType           *string    `json:"price_type"`
 	PriceClean          *float64   `json:"price_clean"`
 	AccruedInt          *float64   `json:"accrued_int"`
 	DurationMod         *float64   `json:"duration_mod"`
+	Convexity           *float64   `json:"convexity"`
+	YTM                 *float64   `json:"ytm"`
 	Source              string     `json:"source"`
 	MarketDate          *time.Time `json:"market_date"`
+	TradeDate           *string    `json:"trade_date"`
+	LoadedAt            *time.Time `json:"loaded_at"`
 	ReadyForCalculation bool       `json:"ready_for_calculation"`
 	MissingParameters   []string   `json:"missing_parameters"`
 }

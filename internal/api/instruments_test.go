@@ -74,15 +74,20 @@ func TestGetInstrument(t *testing.T) {
 			t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
 			price, accrued, duration := 1000.0, 10.0, 3.0
+			coupon, convexity, ytm := 8.5, 12.1, 9.2
+			maturity := time.Date(2028, 12, 15, 0, 0, 0, 0, time.UTC)
+			loadedAt := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 			instrument := models.Instrument{
 				ID: uuid.New(), ISIN: "RU000A0JX0J2", Name: "Test bond",
 				InstrumentType: "bond", IssuerName: "Test issuer", Currency: "RUB", FaceValue: 1000,
+				CouponType: "fixed", CouponFreq: 2, CouponRate: &coupon, MaturityDate: &maturity,
 			}
 			store := &instrumentTestStore{
 				instrument: instrument, instrumentErr: tt.instrumentErr, marketErr: tt.marketErr,
 				marketData: models.MarketData{
 					InstrumentID: instrument.ID, TradeDate: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
-					PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration,
+					PriceType: "trade", PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration,
+					Convexity: &convexity, YTM: &ytm, LoadedAt: loadedAt,
 				},
 			}
 			isin := tt.isin
@@ -140,10 +145,16 @@ func TestGetInstrument(t *testing.T) {
 			if body.ID != instrument.ID || body.ISIN != instrument.ISIN || body.Name != instrument.Name || body.Currency != instrument.Currency {
 				t.Error("response contains incorrect instrument data")
 			}
+			if body.CouponType != "fixed" || body.CouponFreq != 2 || body.CouponRate == nil || *body.CouponRate != coupon || body.MaturityDate == nil || *body.MaturityDate != "2028-12-15" {
+				t.Error("response contains incorrect coupon or maturity data")
+			}
 			if store.lookupCalls != 1 || store.marketCalls != 1 || store.source != tt.wantSource {
 				t.Error("incorrect storage calls or selected source")
 			}
 			if errors.Is(tt.marketErr, gorm.ErrRecordNotFound) {
+				if body.PriceType != nil || body.TradeDate != nil || body.LoadedAt != nil || body.Convexity != nil || body.YTM != nil {
+					t.Error("missing market data must produce null additional market fields")
+				}
 				if body.ReadyForCalculation || body.PriceClean != nil || body.AccruedInt != nil || body.DurationMod != nil || body.MarketDate != nil {
 					t.Error("missing market data must produce an unready instrument with null values")
 				}
@@ -151,6 +162,9 @@ func TestGetInstrument(t *testing.T) {
 					t.Errorf("unexpected missing parameters: %v", body.MissingParameters)
 				}
 			} else {
+				if body.PriceType == nil || *body.PriceType != "trade" || body.TradeDate == nil || *body.TradeDate != "2026-10-27" || body.LoadedAt == nil || !body.LoadedAt.Equal(loadedAt) || body.Convexity == nil || *body.Convexity != convexity || body.YTM == nil || *body.YTM != ytm {
+					t.Error("response contains incorrect additional market data")
+				}
 				if !body.ReadyForCalculation || body.MissingParameters == nil || len(body.MissingParameters) != 0 {
 					t.Error("complete market data must produce a ready instrument and an empty missing parameters array")
 				}

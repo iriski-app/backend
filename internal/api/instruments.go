@@ -51,16 +51,30 @@ func (h *Handler) GetInstrument(w http.ResponseWriter, r *http.Request) {
 		IssuerName:          info.Instrument.IssuerName,
 		Currency:            info.Instrument.Currency,
 		FaceValue:           info.Instrument.FaceValue,
+		CouponType:          info.Instrument.CouponType,
+		CouponFreq:          info.Instrument.CouponFreq,
+		CouponRate:          info.Instrument.CouponRate,
 		ReadyForCalculation: info.ReadyForCalculation,
 		MissingParameters:   info.MissingParameters,
 	}
 
+	if info.Instrument.MaturityDate != nil {
+		date := info.Instrument.MaturityDate.Format("2006-01-02")
+		response.MaturityDate = &date
+	}
+
 	if info.MarketData != nil {
+		response.PriceType = &info.MarketData.PriceType
 		response.PriceClean = info.MarketData.PriceClean
 		response.AccruedInt = info.MarketData.AccruedInt
 		response.DurationMod = info.MarketData.DurationMod
+		response.Convexity = info.MarketData.Convexity
+		response.YTM = info.MarketData.YTM
 		response.Source = string(info.MarketData.Source)
 		response.MarketDate = &info.MarketData.TradeDate
+		date := info.MarketData.TradeDate.Format("2006-01-02")
+		response.TradeDate = &date
+		response.LoadedAt = &info.MarketData.LoadedAt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
