@@ -2,13 +2,30 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/risk"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"gorm.io/gorm"
 )
+
+func (s *Service) GetCalculation(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	calcID uuid.UUID,
+) (models.CalcRun, []models.CalcResult, error) {
+	run, results, err := s.Store.GetCalculation(ctx, sessionID, calcID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.CalcRun{}, nil, ErrCalculationNotFound
+	}
+	if err != nil {
+		return models.CalcRun{}, nil, err
+	}
+	return run, results, nil
+}
 
 func (s *Service) CalculateSingle(
 	ctx context.Context,
@@ -81,7 +98,10 @@ func (s *Service) CalculatePositions(
 			"%w: must be at least one position", ErrInvalidParameter)
 	}
 	calcRunID := uuid.New()
-	asOfDate := time.Now()
+	asOfDate, err := s.Store.GetLatestMarketDate(ctx, models.SourceMoex, marketDateCutoff(time.Now()))
+	if err != nil {
+		return models.CalcRun{}, nil, err
+	}
 	calcRun := models.CalcRun{
 		ID:           calcRunID,
 		SessionID:    sessionID,
