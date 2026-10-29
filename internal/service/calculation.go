@@ -98,7 +98,10 @@ func (s *Service) CalculatePositions(
 			"%w: must be at least one position", ErrInvalidParameter)
 	}
 	calcRunID := uuid.New()
-	asOfDate := time.Now()
+	asOfDate, err := s.Store.GetLatestMarketDate(ctx, models.SourceMoex, marketDateCutoff(time.Now()))
+	if err != nil {
+		return models.CalcRun{}, nil, err
+	}
 	calcRun := models.CalcRun{
 		ID:           calcRunID,
 		SessionID:    sessionID,

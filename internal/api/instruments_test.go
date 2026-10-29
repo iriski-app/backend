@@ -164,3 +164,7 @@ func TestGetInstrument(t *testing.T) {
 		})
 	}
 }
+
+func (s *instrumentTestStore) GetLatestMarketDate(_ context.Context, _ models.Source, cutoff time.Time) (time.Time, error) {
+	return cutoff, nil
+}

@@ -42,6 +42,7 @@ func TestCalculateSuccess(t *testing.T) {
 			var requestedDates []time.Time
 			saveCalls := 0
 			store := &fakeStore{
+				GetLatestMarketDateFunc: func(_ context.Context, _ models.Source, _ time.Time) (time.Time, error) { return tradeDate, nil },
 				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
 					if _, ok := marketData[id]; !ok {
 						t.Fatalf("unexpected instrument ID: %v", id)

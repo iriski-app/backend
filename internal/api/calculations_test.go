@@ -489,3 +489,7 @@ func TestCalculationCreateThenGetSnapshot(t *testing.T) {
 		t.Errorf("save calls = %d, get calls = %d; want 1, 2", store.saveCalls, store.getCalls)
 	}
 }
+
+func (s *calculationTestStore) GetLatestMarketDate(_ context.Context, _ models.Source, cutoff time.Time) (time.Time, error) {
+	return cutoff, nil
+}

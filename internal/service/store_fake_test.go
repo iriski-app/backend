@@ -9,6 +9,7 @@ import (
 )
 
 type fakeStore struct {
+	GetLatestMarketDateFunc  func(context.Context, models.Source, time.Time) (time.Time, error)
 	GetInstrumentFunc        func(ctx context.Context, isin string) (models.Instrument, error)
 	GetInstrumentByIDFunc    func(ctx context.Context, id uuid.UUID) (models.Instrument, error)
 	GetMarketDataFunc        func(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
@@ -111,4 +112,11 @@ func (s *fakeStore) UpdateBasketItem(ctx context.Context, id uuid.UUID, params m
 		panic("unexpected call to fakeStore.UpdateBasketItem")
 	}
 	return s.UpdateBasketItemFunc(ctx, id, params)
+}
+
+func (s *fakeStore) GetLatestMarketDate(ctx context.Context, source models.Source, cutoff time.Time) (time.Time, error) {
+	if s.GetLatestMarketDateFunc != nil {
+		return s.GetLatestMarketDateFunc(ctx, source, cutoff)
+	}
+	return cutoff, nil
 }
