@@ -97,6 +97,7 @@ func newCalculationTestStore() (*calculationTestStore, []Position) {
 	}
 	accrued := []float64{10, 20}
 	durations := []float64{3, 2}
+	convexities := []float64{12.5, 0}
 	for i, position := range positions {
 		instrument := models.Instrument{ID: uuid.New(), ISIN: position.ISIN, Currency: "RUB"}
 		price := 1000.0
@@ -108,6 +109,7 @@ func newCalculationTestStore() (*calculationTestStore, []Position) {
 			PriceClean:   &price,
 			AccruedInt:   &accrued[i],
 			DurationMod:  &durations[i],
+			Convexity:    &convexities[i],
 		}
 	}
 	return store, positions
@@ -139,10 +141,10 @@ func TestCalculationSuccess(t *testing.T) {
 		count      int
 		wantTotal  float64
 	}{
-		{name: "single new session", newSession: true, count: 1, wantTotal: 3.03},
-		{name: "single existing session", count: 1, wantTotal: 3.03},
-		{name: "multiple positions new session", newSession: true, count: 2, wantTotal: 2.01},
-		{name: "multiple positions existing session", count: 2, wantTotal: 2.01},
+		{name: "single new session", newSession: true, count: 1, wantTotal: -3.02936875},
+		{name: "single existing session", count: 1, wantTotal: -3.02936875},
+		{name: "multiple positions new session", newSession: true, count: 2, wantTotal: -2.00936875},
+		{name: "multiple positions existing session", count: 2, wantTotal: -2.00936875},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -180,7 +182,7 @@ func TestCalculationSuccess(t *testing.T) {
 			if store.saveCalls != 1 || len(store.savedResults) != tt.count || len(result.Positions) != tt.count {
 				t.Fatalf("save calls = %d, saved positions = %d, response positions = %d; want 1, %d, %d", store.saveCalls, len(store.savedResults), len(result.Positions), tt.count, tt.count)
 			}
-			wantDV01 := []float64{3.03, -1.02}
+			wantDV01 := []float64{-3.02936875, 1.02}
 			wantValues := []float64{10100, 5100}
 			for i, position := range result.Positions {
 				input, saved := positions[i], store.savedResults[i]

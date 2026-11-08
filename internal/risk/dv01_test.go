@@ -19,16 +19,16 @@ func TestCountDV01(t *testing.T) {
 			positions: []Position{
 				{MarketValue: 10000, DurationMod: 3, Side: models.DealSideBuy},
 			},
-			wantDV01:  []float64{3},
-			wantTotal: 3,
+			wantDV01:  []float64{-3},
+			wantTotal: -3,
 		},
 		{
 			name: "sell",
 			positions: []Position{
 				{MarketValue: 5000, DurationMod: 2, Side: models.DealSideSell},
 			},
-			wantDV01:  []float64{-1},
-			wantTotal: -1,
+			wantDV01:  []float64{1},
+			wantTotal: 1,
 		},
 		{
 			name: "mixed basket",
@@ -36,8 +36,8 @@ func TestCountDV01(t *testing.T) {
 				{MarketValue: 10000, DurationMod: 3, Side: models.DealSideBuy},
 				{MarketValue: 5000, DurationMod: 2, Side: models.DealSideSell},
 			},
-			wantDV01:  []float64{3, -1},
-			wantTotal: 2,
+			wantDV01:  []float64{-3, 1},
+			wantTotal: -2,
 		},
 		{
 			name: "offsetting positions",
@@ -45,7 +45,7 @@ func TestCountDV01(t *testing.T) {
 				{MarketValue: 10000, DurationMod: 3, Side: models.DealSideBuy},
 				{MarketValue: 10000, DurationMod: 3, Side: models.DealSideSell},
 			},
-			wantDV01:  []float64{3, -3},
+			wantDV01:  []float64{-3, 3},
 			wantTotal: 0,
 		},
 		{
@@ -53,8 +53,17 @@ func TestCountDV01(t *testing.T) {
 			positions: []Position{
 				{MarketValue: 12345.67, DurationMod: 2.34, Side: models.DealSideBuy},
 			},
-			wantDV01:  []float64{2.88888678},
-			wantTotal: 2.88888678,
+			wantDV01:  []float64{-2.88888678},
+			wantTotal: -2.88888678,
+		},
+		{
+			name: "nonzero convexity",
+			positions: []Position{
+				{MarketValue: 10000, DurationMod: 3, Convexity: 12.5, Side: models.DealSideBuy},
+				{MarketValue: 10000, DurationMod: 3, Convexity: 12.5, Side: models.DealSideSell},
+			},
+			wantDV01:  []float64{-2.999375, 2.999375},
+			wantTotal: 0,
 		},
 		{
 			name:      "empty positions",

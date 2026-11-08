@@ -12,7 +12,7 @@ func CountDV01(positions []Position) (Result, error) {
 		} else {
 			sign = -1.0
 		}
-		curDV01 := position.MarketValue * position.DurationMod * 0.0001 * sign
+		curDV01 := position.MarketValue * (-position.DurationMod*0.0001 + 0.5*position.Convexity*0.0001*0.0001) * sign
 		positionsDV01[i] = curDV01
 		totalDV01 += curDV01
 	}

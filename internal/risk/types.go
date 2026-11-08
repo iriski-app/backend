@@ -5,6 +5,7 @@ import "github.com/iriski-app/backend/internal/storage/models"
 type Position struct {
 	MarketValue float64
 	DurationMod float64
+	Convexity   float64
 	Side        models.DealSide
 }
 
