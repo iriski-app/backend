@@ -26,7 +26,7 @@ func TestCalculateSuccess(t *testing.T) {
 			}
 			tradeDate := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
 			price, accruedBuy, accruedSell := 1000.0, 10.0, 20.0
-			durationBuy, durationSell, convexity := 3.0, 2.0, 12.5
+			durationBuy, durationSell, convexity, zeroConvexity := 3.0, 2.0, 12.5, 0.0
 			marketData := map[uuid.UUID]models.MarketData{
 				instrumentIDs[0]: {
 					InstrumentID: instrumentIDs[0], TradeDate: tradeDate, Source: models.SourceMoex,
@@ -34,7 +34,7 @@ func TestCalculateSuccess(t *testing.T) {
 				},
 				instrumentIDs[1]: {
 					InstrumentID: instrumentIDs[1], TradeDate: tradeDate, Source: models.SourceMoex,
-					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell,
+					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell, Convexity: &zeroConvexity,
 				},
 			}
 			var savedRun models.CalcRun
@@ -74,9 +74,9 @@ func TestCalculateSuccess(t *testing.T) {
 			var run models.CalcRun
 			var results []models.CalcResult
 			var err error
-			wantDV01 := []float64{3.03, -1.02}
+			wantDV01 := []float64{-3.02936875, 1.02}
 			wantValues := []float64{10100, 5100}
-			wantTotal := 2.01
+			wantTotal := -2.00936875
 
 			switch mode {
 			case "positions":
@@ -90,7 +90,7 @@ func TestCalculateSuccess(t *testing.T) {
 				}
 				run, results, err = svc.CalculateSingle(ctx, sessionID, "RU000A0JX0J2", models.DealSideBuy, 10)
 				positions, wantDV01, wantValues = positions[:1], wantDV01[:1], wantValues[:1]
-				wantTotal = 3.03
+				wantTotal = -3.02936875
 			case "basket":
 				store.GetBasketBySessionIDFunc = func(_ context.Context, id uuid.UUID) (models.Basket, error) {
 					if id != sessionID {
@@ -228,7 +228,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 	for _, stage := range []string{"instrument", "market data", "save"} {
 		t.Run(stage, func(t *testing.T) {
 			wantErr := errors.New("storage failure")
-			price, accrued, duration := 1000.0, 0.0, 3.0
+			price, accrued, duration, convexity := 1000.0, 0.0, 3.0, 0.0
 			saveCalls := 0
 			store := &fakeStore{
 				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
@@ -241,7 +241,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 					if stage == "market data" {
 						return models.MarketData{}, wantErr
 					}
-					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}, nil
+					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
 				},
 				SaveCalculationFunc: func(_ context.Context, run models.CalcRun, results []models.CalcResult) error {
 					saveCalls++
@@ -251,7 +251,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 					if run.Status != models.CalcStatusSuccess || len(results) != 1 {
 						t.Fatal("unexpected calculation passed to SaveCalculation")
 					}
-					assertCalculationFloat(t, "DV01", results[0].DV01, 0.3)
+					assertCalculationFloat(t, "DV01", results[0].DV01, -0.3)
 					return wantErr
 				},
 			}
@@ -266,7 +266,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 }
 
 func TestCalculatePositionsInvalidSecondPosition(t *testing.T) {
-	price, accrued, duration := 1000.0, 10.0, 3.0
+	price, accrued, duration, convexity := 1000.0, 10.0, 3.0, 0.0
 	marketCalls := 0
 	store := &fakeStore{
 		GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
@@ -274,7 +274,7 @@ func TestCalculatePositionsInvalidSecondPosition(t *testing.T) {
 		},
 		GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
 			marketCalls++
-			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}, nil
+			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
 		},
 	}
 	positions := []PositionInput{

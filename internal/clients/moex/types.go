@@ -41,6 +41,32 @@ type MarketData struct {
 	FaceValueType  string   `json:"FACEVALUE_TYPE"`
 }
 
+type Bondization struct {
+	Coupons       []Coupon       `json:"coupons"`
+	Amortizations []Amortization `json:"amortizations"`
+	Offers        []Offer        `json:"offers"`
+}
+
+type Coupon struct {
+	CouponDate   string   `json:"coupondate"`
+	StartDate    string   `json:"startdate"`
+	Value        *float64 `json:"value"`
+	ValuePercent *float64 `json:"valueprc"`
+	ValueRUB     *float64 `json:"value_rub"`
+}
+
+type Amortization struct {
+	AmortDate    string   `json:"amortdate"`
+	Value        *float64 `json:"value"`
+	ValuePercent *float64 `json:"valueprc"`
+	ValueRUB     *float64 `json:"value_rub"`
+}
+
+type Offer struct {
+	OfferDate string   `json:"offerdate"`
+	Price     *float64 `json:"price"`
+}
+
 type table struct {
 	Columns []string            `json:"columns"`
 	Data    [][]json.RawMessage `json:"data"`

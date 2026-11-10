@@ -105,7 +105,7 @@ func (s *Service) CalculatePositions(
 	calcRun := models.CalcRun{
 		ID:           calcRunID,
 		SessionID:    sessionID,
-		AsOfDate:     asOfDate, //TODO: получать предыдушую дату торгов, учитывая праздники и выходные
+		AsOfDate:     asOfDate,
 		Status:       models.CalcStatusRunning,
 		TotalDV01Rub: nil,
 		CreatedAt:    time.Now(),
@@ -139,11 +139,15 @@ func (s *Service) CalculatePositions(
 		if curMarketData.PriceClean == nil {
 			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: price", ErrMissingParameter)
 		}
+		if curMarketData.Convexity == nil {
+			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: convexity", ErrMissingParameter)
+		}
 		marketValue := float64(position.Quantity) * (*curMarketData.PriceClean + *curMarketData.AccruedInt)
 		riskPositions[i] = risk.Position{
 			MarketValue: marketValue,
 			DurationMod: *curMarketData.DurationMod,
 			Side:        position.Side,
+			Convexity:   *curMarketData.Convexity,
 		}
 		calcResults[i] = models.CalcResult{
 			ID:           uuid.New(),

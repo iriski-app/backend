@@ -67,6 +67,34 @@ func (c *Client) GetInstruments(ctx context.Context, board string) ([]Instrument
 	return instruments, nil
 }
 
+func (c *Client) GetBondization(ctx context.Context, secID string) (Bondization, error) {
+	secID = strings.TrimSpace(secID)
+	if secID == "" {
+		return Bondization{}, errors.New("MOEX SECID is required")
+	}
+	path := "/securities/" + url.PathEscape(secID) + "/bondization.json"
+	params := url.Values{"iss.meta": {"off"}, "limit": {"unlimited"}}
+	var response struct {
+		Coupons       table `json:"coupons"`
+		Amortizations table `json:"amortizations"`
+		Offers        table `json:"offers"`
+	}
+	if err := c.get(ctx, path, params, &response); err != nil {
+		return Bondization{}, err
+	}
+	var result Bondization
+	if err := decodeTable(response.Coupons, &result.Coupons, "coupondate", "value"); err != nil {
+		return Bondization{}, fmt.Errorf("decode coupons: %w", err)
+	}
+	if err := decodeTable(response.Amortizations, &result.Amortizations, "amortdate", "value"); err != nil {
+		return Bondization{}, fmt.Errorf("decode amortizations: %w", err)
+	}
+	if err := decodeTable(response.Offers, &result.Offers, "offerdate", "price"); err != nil {
+		return Bondization{}, fmt.Errorf("decode offers: %w", err)
+	}
+	return result, nil
+}
+
 func (c *Client) GetMarketData(
 	ctx context.Context,
 	board string,
