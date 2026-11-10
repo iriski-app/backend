@@ -49,7 +49,8 @@ func TestCountConvexityPriceSensitivity(t *testing.T) {
 		{Date: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Amount: 1080},
 	}
 	price := func(yield float64) float64 {
-		return 80/(1+yield) + 1080/math.Pow(1+yield, 2)
+		discount := 1 + yield
+		return 80/discount + 1080/(discount*discount)
 	}
 	yield := 0.1
 	got, err := CountConvexity(settlement, yield, flows)
