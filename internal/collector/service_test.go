@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +63,68 @@ func TestRunSuccess(t *testing.T) {
 	}
 	if store.saved[1].marketData.DurationMod != nil {
 		t.Fatal("missing duration was replaced")
+	}
+}
+
+type blockingBondizationClient struct {
+	Client
+	started chan string
+	release chan struct{}
+}
+
+func (c *blockingBondizationClient) GetBondization(ctx context.Context, secID string) (moex.Bondization, error) {
+	select {
+	case c.started <- secID:
+	case <-ctx.Done():
+		return moex.Bondization{}, ctx.Err()
+	}
+	select {
+	case <-c.release:
+		return moex.Bondization{}, errors.New("test error")
+	case <-ctx.Done():
+		return moex.Bondization{}, ctx.Err()
+	}
+}
+
+func TestConvexityWorkersLimitAndCancellation(t *testing.T) {
+	client := &blockingBondizationClient{Client: newCollectorClientFake(), started: make(chan string, 3), release: make(chan struct{})}
+	service := NewService(nil, client)
+	service.Workers = 2
+	data := testMarketData()
+	data.YieldClose = testFloat(10)
+	records := make([]marketDataRecord, 3)
+	counts := make(map[string]int)
+	for i := range records {
+		isin := string(rune('A' + i))
+		records[i] = marketDataRecord{instrument: models.Instrument{ISIN: isin}, marketData: &models.MarketData{}, sourceInstrument: testInstrument(), sourceMarketData: data}
+		records[i].sourceMarketData.SECID = isin
+		counts[isin] = 1
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		for range service.calculateConvexities(ctx, records, counts, collectorTradeDate()) {
+		}
+		close(done)
+	}()
+	for range 2 {
+		select {
+		case <-client.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("workers did not start")
+		}
+	}
+	select {
+	case <-client.started:
+		t.Fatal("more than two requests started")
+	default:
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("workers did not stop after cancellation")
 	}
 }
 
@@ -424,6 +487,7 @@ func TestRunFinishError(t *testing.T) {
 }
 
 type collectorClientFake struct {
+	mu               sync.Mutex
 	instruments      map[string][]moex.Instrument
 	history          map[string][]moex.MarketData
 	instrumentErrors map[string]error
@@ -448,6 +512,8 @@ func (c *collectorClientFake) GetMarketData(ctx context.Context, board string, d
 }
 
 func (c *collectorClientFake) GetBondization(ctx context.Context, secID string) (moex.Bondization, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.bondizationCalls = append(c.bondizationCalls, secID)
 	if c.bondizationError != nil {
 		return moex.Bondization{}, c.bondizationError

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -53,6 +54,13 @@ func run() error {
 	store := postgres.NewStore(db)
 	client := moex.NewClient(os.Getenv("MOEX_BASE_URL"), 30*time.Second)
 	service := collector.NewService(store, client)
+	if value := os.Getenv("COLLECTOR_WORKERS"); value != "" {
+		workers, err := strconv.Atoi(value)
+		if err != nil || workers < 1 || workers > 100 {
+			return errors.New("COLLECTOR_WORKERS must be an integer between 1 and 100")
+		}
+		service.Workers = workers
+	}
 	_, err = service.Run(ctx, tradeDate)
 	return err
 }

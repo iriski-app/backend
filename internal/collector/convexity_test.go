@@ -15,6 +15,41 @@ type calendarClient struct {
 	calls   int
 }
 
+type retryClient struct {
+	Client
+	calls int
+	err   error
+}
+
+func (c *retryClient) GetBondization(ctx context.Context, secID string) (moex.Bondization, error) {
+	c.calls++
+	return moex.Bondization{}, c.err
+}
+
+func TestConvexityRetriesTemporaryErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		err   error
+		calls int
+	}{
+		{name: "rate limited", err: &moex.HTTPError{StatusCode: 429}, calls: 3},
+		{name: "server error", err: &moex.HTTPError{StatusCode: 503}, calls: 3},
+		{name: "invalid request", err: &moex.HTTPError{StatusCode: 400}, calls: 1},
+		{name: "invalid data", err: moex.ErrInvalidResponse, calls: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &retryClient{err: tt.err}
+			calculator := convexityCalculator{client: client}
+			data := testMarketData()
+			data.YieldClose = testFloat(10)
+			_, err := calculator.calculate(context.Background(), testInstrument(), data, collectorTradeDate(), nil)
+			if !errors.Is(err, tt.err) || client.calls != tt.calls {
+				t.Fatalf("calls %d, error %v", client.calls, err)
+			}
+		})
+	}
+}
+
 func (c *calendarClient) GetSettlementCalendar(ctx context.Context, year int) ([]moex.SettlementCalendar, error) {
 	c.calls++
 	return c.entries[year], nil

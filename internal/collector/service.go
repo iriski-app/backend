@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,8 +29,9 @@ type Storage interface {
 }
 
 type Service struct {
-	Store  Storage
-	Client Client
+	Store   Storage
+	Client  Client
+	Workers int
 }
 
 type Result struct {
@@ -46,10 +48,72 @@ type marketDataRecord struct {
 	sourceMarketData moex.MarketData
 }
 
+type convexityResult struct {
+	index int
+	value float64
+	err   error
+}
+
+func (s *Service) calculateConvexities(ctx context.Context, records []marketDataRecord, counts map[string]int, tradeDate time.Time) <-chan convexityResult {
+	calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar)}
+	var settlement time.Time
+	var settlementErr error
+	for _, record := range records {
+		if record.marketData != nil && counts[record.instrument.ISIN] == 1 && record.instrument.CouponType != "floating" && record.sourceMarketData.YieldClose != nil && validNumber(*record.sourceMarketData.YieldClose) && *record.sourceMarketData.YieldClose > -100 {
+			settlement, settlementErr = calculator.settlementDate(ctx, tradeDate)
+			break
+		}
+	}
+	workers := s.Workers
+	if workers <= 0 {
+		workers = 5
+	}
+	if workers > len(records) {
+		workers = len(records)
+	}
+	jobs := make(chan int)
+	completed := make(chan convexityResult)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				record := records[index]
+				value, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, settlement, settlementErr)
+				select {
+				case completed <- convexityResult{index: index, value: value, err: err}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for i, record := range records {
+			if record.marketData == nil || counts[record.instrument.ISIN] != 1 || record.instrument.CouponType == "floating" {
+				continue
+			}
+			select {
+			case jobs <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(completed)
+	}()
+	return completed
+}
+
 func NewService(store Storage, client Client) *Service {
 	return &Service{
-		Store:  store,
-		Client: client,
+		Store:   store,
+		Client:  client,
+		Workers: 5,
 	}
 }
 
@@ -84,7 +148,6 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 		runErr = errors.Join(runErr, err)
 	}
 	counts := make(map[string]int, len(records))
-	calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar)}
 	var convexityErr error
 	convexityFailures := 0
 	for _, record := range records {
@@ -92,7 +155,10 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 			counts[record.instrument.ISIN]++
 		}
 	}
-	for _, record := range records {
+	workersCtx, stopWorkers := context.WithCancel(ctx)
+	calculations := s.calculateConvexities(workersCtx, records, counts, tradeDate)
+	pending := make(map[int]convexityResult)
+	for index, record := range records {
 		if err := ctx.Err(); err != nil {
 			runErr = errors.Join(runErr, err)
 			break
@@ -118,7 +184,35 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 				record.marketData.DurationMod = &duration
 			}
 		} else {
-			convexity, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, tradeDate)
+			calculation, ok := pending[index]
+			closed := false
+			for !ok {
+				var next convexityResult
+				select {
+				case next, ok = <-calculations:
+					if !ok {
+						closed = true
+						break
+					}
+					pending[next.index] = next
+					calculation, ok = pending[index]
+				case <-ctx.Done():
+					ok = false
+				}
+				if ctx.Err() != nil || closed {
+					break
+				}
+			}
+			if ctx.Err() != nil {
+				runErr = errors.Join(runErr, ctx.Err())
+				break
+			}
+			if closed {
+				runErr = errors.Join(runErr, errors.New("convexity workers stopped before completing all jobs"))
+				break
+			}
+			delete(pending, index)
+			convexity, err := calculation.value, calculation.err
 			if err != nil {
 				if ctx.Err() != nil {
 					runErr = errors.Join(runErr, ctx.Err())
@@ -139,6 +233,9 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 			break
 		}
 		result.RowsLoaded++
+	}
+	stopWorkers()
+	for range calculations {
 	}
 	if convexityFailures > 0 {
 		runErr = errors.Join(runErr, fmt.Errorf("convexity unavailable for %d instruments (first: %w)", convexityFailures, convexityErr))

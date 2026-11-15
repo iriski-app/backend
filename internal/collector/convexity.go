@@ -2,7 +2,9 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -68,15 +70,36 @@ func (c *convexityCalculator) loadCalendar(ctx context.Context, year int) settle
 	return settlementCalendar{days: days}
 }
 
-func (c *convexityCalculator) calculate(ctx context.Context, instrument moex.Instrument, data moex.MarketData, tradeDate time.Time) (float64, error) {
+func (c *convexityCalculator) calculate(ctx context.Context, instrument moex.Instrument, data moex.MarketData, settlement time.Time, settlementErr error) (float64, error) {
 	if data.YieldClose == nil || !validNumber(*data.YieldClose) || *data.YieldClose <= -100 {
 		return 0, fmt.Errorf("%w: missing or invalid yield", ErrInvalidData)
 	}
-	settlement, err := c.settlementDate(ctx, tradeDate)
-	if err != nil {
-		return 0, err
+	if settlementErr != nil {
+		return 0, settlementErr
 	}
-	schedule, err := c.client.GetBondization(ctx, data.SECID)
+	var schedule moex.Bondization
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		schedule, err = c.client.GetBondization(ctx, data.SECID)
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+		var httpErr *moex.HTTPError
+		var netErr net.Error
+		retryHTTP := errors.As(err, &httpErr) && (httpErr.StatusCode == 429 || httpErr.StatusCode >= 500 && httpErr.StatusCode <= 599)
+		if !retryHTTP && !errors.As(err, &netErr) {
+			break
+		}
+		if attempt < 2 {
+			timer := time.NewTimer(time.Duration(1<<attempt) * 200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return 0, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
 	if err != nil {
 		return 0, fmt.Errorf("get bondization: %w", err)
 	}
