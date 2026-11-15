@@ -37,7 +37,11 @@ func buildCashFlows(instrument moex.Instrument, data moex.MarketData, schedule m
 	}
 	var offerPrice *float64
 	for _, offer := range schedule.Offers {
-		date, err := time.Parse("2006-01-02", offer.OfferDate)
+		offerDate := strings.TrimSpace(offer.OfferDate)
+		if offerDate == "0000-00-00" && hasBuyback {
+			continue
+		}
+		date, err := time.Parse("2006-01-02", offerDate)
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid offer date", ErrInvalidData)
 		}

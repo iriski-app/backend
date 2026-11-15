@@ -37,7 +37,7 @@ func TestBuildCashFlowsBuyback(t *testing.T) {
 	schedule := moex.Bondization{
 		Coupons:       []moex.Coupon{{CouponDate: "2027-01-03", Value: testFloat(40)}, {CouponDate: "2027-02-03", Value: testFloat(40)}},
 		Amortizations: []moex.Amortization{{AmortDate: "2027-01-03", Value: testFloat(200)}},
-		Offers:        []moex.Offer{{OfferDate: "2027-01-03", Price: testFloat(98)}},
+		Offers:        []moex.Offer{{OfferDate: "0000-00-00"}, {OfferDate: "2027-01-03", Price: testFloat(98)}},
 	}
 	flows, err := buildCashFlows(instrument, data, schedule, settlement)
 	if err != nil {
@@ -74,6 +74,17 @@ func TestBuildCashFlowsRejectsIncompleteData(t *testing.T) {
 		{"missing offer price", func(_ *moex.Instrument, d *moex.MarketData, s *moex.Bondization) {
 			d.BuybackDate = "2026-12-03"
 			s.Offers = []moex.Offer{{OfferDate: d.BuybackDate}}
+		}},
+		{"unknown offer without buyback", func(_ *moex.Instrument, _ *moex.MarketData, s *moex.Bondization) {
+			s.Offers = []moex.Offer{{OfferDate: "0000-00-00"}}
+		}},
+		{"unknown offer without matching buyback", func(_ *moex.Instrument, d *moex.MarketData, s *moex.Bondization) {
+			d.BuybackDate = "2026-12-03"
+			s.Offers = []moex.Offer{{OfferDate: "0000-00-00", Price: testFloat(100)}}
+		}},
+		{"malformed offer with buyback", func(_ *moex.Instrument, d *moex.MarketData, s *moex.Bondization) {
+			d.BuybackDate = "2026-12-03"
+			s.Offers = []moex.Offer{{OfferDate: "2026-99-99"}, {OfferDate: d.BuybackDate, Price: testFloat(100)}}
 		}},
 		{"ambiguous offer", func(_ *moex.Instrument, _ *moex.MarketData, s *moex.Bondization) {
 			s.Offers = []moex.Offer{{OfferDate: "2026-12-03", Price: testFloat(100)}}
