@@ -54,8 +54,12 @@ func TestGetInstrument(t *testing.T) {
 		wantStatus    int
 		wantCode      string
 		wantSource    models.Source
+		couponFreq    *int
+		wantFreqJSON  string
 	}{
-		{name: "default source", wantStatus: http.StatusOK, wantSource: models.SourceMoex},
+		{name: "default source", wantStatus: http.StatusOK, wantSource: models.SourceMoex, couponFreq: new(2), wantFreqJSON: "2"},
+		{name: "unknown coupon frequency", wantStatus: http.StatusOK, wantSource: models.SourceMoex, wantFreqJSON: "null"},
+		{name: "known zero coupon frequency", wantStatus: http.StatusOK, wantSource: models.SourceMoex, couponFreq: new(0), wantFreqJSON: "0"},
 		{name: "selected source", query: "?source=rudata", wantStatus: http.StatusOK, wantSource: models.SourceRuData},
 		{name: "no market data", marketErr: gorm.ErrRecordNotFound, wantStatus: http.StatusOK, wantSource: models.SourceMoex},
 		{name: "invalid ISIN", isin: "invalid", wantStatus: http.StatusBadRequest, wantCode: "invalid_isin"},
@@ -80,7 +84,7 @@ func TestGetInstrument(t *testing.T) {
 			instrument := models.Instrument{
 				ID: uuid.New(), ISIN: "RU000A0JX0J2", Name: "Test bond",
 				InstrumentType: "bond", IssuerName: "Test issuer", Currency: "RUB", FaceValue: 1000,
-				CouponType: "fixed", CouponFreq: 2, CouponRate: &coupon, MaturityDate: &maturity,
+				CouponType: "fixed", CouponFreq: tt.couponFreq, CouponRate: &coupon, MaturityDate: &maturity,
 			}
 			store := &instrumentTestStore{
 				instrument: instrument, instrumentErr: tt.instrumentErr, marketErr: tt.marketErr,
@@ -145,8 +149,11 @@ func TestGetInstrument(t *testing.T) {
 			if body.ID != instrument.ID || body.ISIN != instrument.ISIN || body.Name != instrument.Name || body.Currency != instrument.Currency {
 				t.Error("response contains incorrect instrument data")
 			}
-			if body.CouponType != "fixed" || body.CouponFreq != 2 || body.CouponRate == nil || *body.CouponRate != coupon || body.MaturityDate == nil || *body.MaturityDate != "2028-12-15" {
+			if body.CouponType != "fixed" || body.CouponRate == nil || *body.CouponRate != coupon || body.MaturityDate == nil || *body.MaturityDate != "2028-12-15" {
 				t.Error("response contains incorrect coupon or maturity data")
+			}
+			if tt.wantFreqJSON != "" && !strings.Contains(response.Body.String(), `"coupon_freq":`+tt.wantFreqJSON+",") {
+				t.Errorf("expected coupon_freq=%s in response: %s", tt.wantFreqJSON, response.Body.String())
 			}
 			if store.lookupCalls != 1 || store.marketCalls != 1 || store.source != tt.wantSource {
 				t.Error("incorrect storage calls or selected source")

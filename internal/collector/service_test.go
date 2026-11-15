@@ -65,6 +65,47 @@ func TestRunSuccess(t *testing.T) {
 	}
 }
 
+func TestRunFloatingCoupon(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		period       *int
+		wantDuration *float64
+	}{
+		{name: "semiannual", period: testInt(182), wantDuration: testFloat(0.5)},
+		{name: "quarterly", period: testInt(91), wantDuration: testFloat(0.25)},
+		{name: "missing frequency", period: nil},
+		{name: "invalid frequency", period: testInt(0)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &collectorStoreFake{}
+			client := newCollectorClientFake()
+			addCollectorPosition(client, "TQOB", "BOND1", "RU000A0JS3W6")
+			client.instruments["TQOB"][0].BondType = "Облигация с плавающим купоном"
+			client.instruments["TQOB"][0].CouponDetails = "Индекс RUONIA"
+			client.instruments["TQOB"][0].CouponPeriod = tt.period
+			client.history["TQOB"][0].BondType = "Облигация с плавающим купоном"
+			client.history["TQOB"][0].CouponDetails = "Индекс RUONIA"
+			client.history["TQOB"][0].YieldClose = nil
+			result, err := NewService(store, client).Run(context.Background(), collectorTradeDate())
+			if err != nil || result.RowsLoaded != 1 || len(store.saved) != 1 {
+				t.Fatalf("result: %+v, error: %v", result, err)
+			}
+			saved := store.saved[0]
+			if saved.instrument.CouponType != "floating" || len(client.bondizationCalls) != 0 || client.calendarCalls != 0 {
+				t.Fatalf("unexpected instrument or requests: %+v", saved.instrument)
+			}
+			assertNumber(t, "convexity", saved.marketData.Convexity, 0)
+			if tt.wantDuration == nil {
+				if saved.marketData.DurationMod != nil {
+					t.Fatal("duration must be unknown")
+				}
+			} else {
+				assertNumber(t, "duration", saved.marketData.DurationMod, *tt.wantDuration)
+			}
+		})
+	}
+}
+
 func TestRunKeepsMarketDataWhenConvexityUnavailable(t *testing.T) {
 	for _, name := range []string{"missing yield", "bondization error", "calendar error"} {
 		t.Run(name, func(t *testing.T) {
@@ -112,13 +153,6 @@ func TestRunSkipsUnsupportedRows(t *testing.T) {
 			change: func(client *collectorClientFake) {
 				client.instruments["TQOB"][0].FaceUnit = "USD"
 				client.history["TQOB"][0].FaceUnit = "USD"
-			},
-		},
-		{
-			name: "floating coupon",
-			change: func(client *collectorClientFake) {
-				client.instruments["TQOB"][0].BondType = "Облигация с плавающим купоном"
-				client.history["TQOB"][0].BondType = "Облигация с плавающим купоном"
 			},
 		},
 		{

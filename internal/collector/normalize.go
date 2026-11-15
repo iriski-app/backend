@@ -49,14 +49,19 @@ func NormalizeInstrument(data moex.Instrument) (models.Instrument, error) {
 		}
 		maturityDate = &parsedDate
 	}
-	couponFreq := 0
+	var couponFreq *int
 	if data.CouponPeriod != nil && *data.CouponPeriod > 0 && *data.CouponPeriod <= 366 {
-		couponFreq = int(math.Round(365 / float64(*data.CouponPeriod)))
+		freq := int(math.Round(365 / float64(*data.CouponPeriod)))
+		couponFreq = &freq
 	}
 	var couponRate *float64
 	if data.CouponPercent != nil && validNumber(*data.CouponPercent) && *data.CouponPercent >= 0 {
 		value := *data.CouponPercent
 		couponRate = &value
+	}
+	couponType := "fixed"
+	if strings.TrimSpace(data.BondType) == "Облигация с плавающим купоном" {
+		couponType = "floating"
 	}
 	return models.Instrument{
 		ID:             uuid.New(),
@@ -65,7 +70,7 @@ func NormalizeInstrument(data moex.Instrument) (models.Instrument, error) {
 		InstrumentType: "bond",
 		Currency:       "RUB",
 		FaceValue:      *data.FaceValue,
-		CouponType:     "fixed",
+		CouponType:     couponType,
 		CouponFreq:     couponFreq,
 		CouponRate:     couponRate,
 		MaturityDate:   maturityDate,
@@ -144,7 +149,13 @@ func validateCurrency(faceUnit string, currencyID string) error {
 }
 
 func validateInstrumentType(bondType string, couponDetails string, faceValueType string) error {
-	if strings.TrimSpace(bondType) != "Облигация с фиксированным (известным) купоном" || strings.TrimSpace(faceValueType) != "Фиксированный" {
+	if strings.TrimSpace(faceValueType) != "Фиксированный" {
+		return ErrUnsupportedInstrument
+	}
+	if strings.TrimSpace(bondType) == "Облигация с плавающим купоном" {
+		return nil
+	}
+	if strings.TrimSpace(bondType) != "Облигация с фиксированным (известным) купоном" {
 		return ErrUnsupportedInstrument
 	}
 	details := strings.TrimSpace(couponDetails)

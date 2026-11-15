@@ -16,7 +16,7 @@ type GetInstrumentResponse struct {
 	Currency            string     `json:"currency"`
 	FaceValue           float64    `json:"face_value"`
 	CouponType          string     `json:"coupon_type"`
-	CouponFreq          int        `json:"coupon_freq"`
+	CouponFreq          *int       `json:"coupon_freq"`
 	CouponRate          *float64   `json:"coupon_rate"`
 	MaturityDate        *string    `json:"maturity_date"`
 	PriceType           *string    `json:"price_type"`

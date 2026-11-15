@@ -30,7 +30,7 @@ func TestNormalizeInstrument(t *testing.T) {
 		Currency:       "RUB",
 		FaceValue:      1000,
 		CouponType:     "fixed",
-		CouponFreq:     2,
+		CouponFreq:     testInt(2),
 		CouponRate:     testFloat(8.15),
 		MaturityDate:   &maturityDate,
 	}
@@ -61,7 +61,6 @@ func TestNormalizeInstrumentInvalidData(t *testing.T) {
 		{name: "foreign settlement currency", change: func(data *moex.Instrument) { data.CurrencyID = "USD" }, want: ErrUnsupportedCurrency},
 		{name: "missing nominal currency", change: func(data *moex.Instrument) { data.FaceUnit = "" }, want: ErrInvalidData},
 		{name: "missing settlement currency", change: func(data *moex.Instrument) { data.CurrencyID = "" }, want: ErrInvalidData},
-		{name: "floating coupon", change: func(data *moex.Instrument) { data.BondType = "Облигация с плавающим купоном" }, want: ErrUnsupportedInstrument},
 		{name: "unknown future coupons", change: func(data *moex.Instrument) {
 			data.CouponDetails = "Фиксированный с неизвестными купонами"
 		}, want: ErrUnsupportedInstrument},
@@ -105,7 +104,7 @@ func TestNormalizeInstrumentOptionalData(t *testing.T) {
 	if instrument.ISIN != "RU000A0JS3W6" || instrument.Name != "ОФЗ 26207" || instrument.Currency != "RUB" {
 		t.Fatalf("unexpected instrument: %+v", instrument)
 	}
-	if instrument.CouponFreq != 0 || instrument.CouponRate != nil || instrument.MaturityDate != nil {
+	if instrument.CouponFreq != nil || instrument.CouponRate != nil || instrument.MaturityDate != nil {
 		t.Fatalf("missing optional data was replaced: %+v", instrument)
 	}
 }
@@ -140,8 +139,12 @@ func TestNormalizeInstrumentCoupon(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if instrument.CouponFreq != tt.wantFreq {
-				t.Fatalf("frequency %d, want %d", instrument.CouponFreq, tt.wantFreq)
+			if tt.wantFreq == 0 {
+				if instrument.CouponFreq != nil {
+					t.Fatalf("frequency %d, want nil", *instrument.CouponFreq)
+				}
+			} else if instrument.CouponFreq == nil || *instrument.CouponFreq != tt.wantFreq {
+				t.Fatalf("unexpected frequency: %+v, want %d", instrument.CouponFreq, tt.wantFreq)
 			}
 			if tt.wantNilRate {
 				if instrument.CouponRate != nil {
@@ -280,7 +283,6 @@ func TestNormalizeMarketDataInvalidData(t *testing.T) {
 		{name: "foreign nominal", change: func(data *moex.MarketData) { data.FaceUnit = "USD" }, want: ErrUnsupportedCurrency},
 		{name: "foreign settlement currency", change: func(data *moex.MarketData) { data.CurrencyID = "USD" }, want: ErrUnsupportedCurrency},
 		{name: "missing currency", change: func(data *moex.MarketData) { data.FaceUnit = "" }, want: ErrInvalidData},
-		{name: "floating coupon", change: func(data *moex.MarketData) { data.BondType = "Облигация с плавающим купоном" }, want: ErrUnsupportedInstrument},
 		{name: "structured bond", change: func(data *moex.MarketData) { data.BondType = "Структурная облигация" }, want: ErrUnsupportedInstrument},
 		{name: "unknown future coupons", change: func(data *moex.MarketData) {
 			data.CouponDetails = "Фиксированный с неизвестными купонами"

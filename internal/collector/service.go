@@ -109,19 +109,29 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 			runErr = errors.Join(runErr, fmt.Errorf("%w: duplicate market data for %s", ErrInvalidData, record.instrument.ISIN))
 			continue
 		}
-		convexity, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, tradeDate)
-		if err != nil {
-			if ctx.Err() != nil {
-				runErr = errors.Join(runErr, ctx.Err())
-				break
-			}
-			convexityFailures++
-			if convexityErr == nil {
-				convexityErr = fmt.Errorf("%s: %w", record.sourceMarketData.SECID, err)
-			}
-			slog.WarnContext(ctx, "convexity unavailable", "secid", record.sourceMarketData.SECID, "error", err)
-		} else {
+		if record.instrument.CouponType == "floating" {
+			convexity := 0.0
 			record.marketData.Convexity = &convexity
+			record.marketData.DurationMod = nil
+			if record.instrument.CouponFreq != nil && *record.instrument.CouponFreq > 0 {
+				duration := 1 / float64(*record.instrument.CouponFreq)
+				record.marketData.DurationMod = &duration
+			}
+		} else {
+			convexity, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, tradeDate)
+			if err != nil {
+				if ctx.Err() != nil {
+					runErr = errors.Join(runErr, ctx.Err())
+					break
+				}
+				convexityFailures++
+				if convexityErr == nil {
+					convexityErr = fmt.Errorf("%s: %w", record.sourceMarketData.SECID, err)
+				}
+				slog.WarnContext(ctx, "convexity unavailable", "secid", record.sourceMarketData.SECID, "error", err)
+			} else {
+				record.marketData.Convexity = &convexity
+			}
 		}
 		if err := s.Store.SaveMarketData(ctx, record.instrument, *record.marketData); err != nil {
 			result.RowsRejected++
@@ -220,6 +230,11 @@ func (s *Service) collectBoard(
 			}
 			rejected++
 			collectErr = errors.Join(collectErr, fmt.Errorf("normalize market data for %s: %w", secID, err))
+			continue
+		}
+		if (instrument.CouponType == "floating") != (strings.TrimSpace(data.BondType) == "Облигация с плавающим купоном") {
+			rejected++
+			collectErr = errors.Join(collectErr, fmt.Errorf("%w: inconsistent coupon type for %s", ErrInvalidData, secID))
 			continue
 		}
 		records = append(records, marketDataRecord{instrument: instrument, marketData: &marketData, sourceInstrument: sourceInstrument, sourceMarketData: data})

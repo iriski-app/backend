@@ -36,7 +36,7 @@ func TestUpsertInstrumentPreservesID(t *testing.T) {
 	update.ID = uuid.New()
 	update.Name = "Updated bond"
 	update.FaceValue = 900
-	update.CouponFreq = 0
+	update.CouponFreq = nil
 	update.CouponRate = nil
 	update.MaturityDate = nil
 	update.IssuerName = ""
@@ -49,7 +49,7 @@ func TestUpsertInstrumentPreservesID(t *testing.T) {
 	if saved.ID != instrument.ID {
 		t.Fatalf("instrument ID changed from %s to %s", instrument.ID, saved.ID)
 	}
-	if saved.Name != "Updated bond" || saved.FaceValue != 900 || saved.CouponFreq != 0 || saved.CouponRate != nil || saved.MaturityDate != nil {
+	if saved.Name != "Updated bond" || saved.FaceValue != 900 || saved.CouponFreq != nil || saved.CouponRate != nil || saved.MaturityDate != nil {
 		t.Fatalf("fields were not updated: %+v", saved)
 	}
 	if saved.IssuerName != instrument.IssuerName || saved.Sector != instrument.Sector || saved.Rating != instrument.Rating {
@@ -59,7 +59,7 @@ func TestUpsertInstrumentPreservesID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.ID != saved.ID || stored.Name != saved.Name || stored.CouponRate != nil || stored.CouponFreq != 0 {
+	if stored.ID != saved.ID || stored.Name != saved.Name || stored.CouponRate != nil || stored.CouponFreq != nil {
 		t.Fatalf("stored instrument differs: %+v", stored)
 	}
 	var count int64
@@ -129,6 +129,14 @@ func TestUpsertMarketDataKeysAndMissingValues(t *testing.T) {
 	}
 	if !stored.LoadedAt.Equal(data.LoadedAt) {
 		t.Fatalf("load time %v, want %v", stored.LoadedAt, data.LoadedAt)
+	}
+	data.Convexity = &zero
+	if err := store.UpsertMarketData(ctx, data); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = store.GetMarketData(ctx, instrument.ID, data.Source, data.TradeDate)
+	if err != nil || stored.Convexity == nil || *stored.Convexity != 0 {
+		t.Fatalf("zero convexity was not preserved: %+v, error: %v", stored.Convexity, err)
 	}
 	for _, expected := range []models.MarketData{otherSource, otherDate} {
 		stored, err := store.GetMarketData(ctx, instrument.ID, expected.Source, expected.TradeDate)
@@ -583,7 +591,7 @@ func ingestionInstrument() models.Instrument {
 		Currency:       "RUB",
 		FaceValue:      1000,
 		CouponType:     "fixed",
-		CouponFreq:     2,
+		CouponFreq:     new(2),
 		Sector:         "Finance",
 		Rating:         "AAA",
 		CouponRate:     &rate,
