@@ -46,6 +46,9 @@ func (s *Service) GetInstrument(
 			if marketData.DurationMod == nil {
 				missingParams = append(missingParams, "duration_mod")
 			}
+			if marketData.Convexity == nil {
+				missingParams = append(missingParams, "convexity")
+			}
 			return InstrumentInfo{Instrument: instrument, MarketData: &marketData, ReadyForCalculation: len(missingParams) == 0, MissingParameters: missingParams}, nil
 		}
 		err = dataErr

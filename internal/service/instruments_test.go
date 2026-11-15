@@ -31,7 +31,8 @@ func TestGetInstrumentData(t *testing.T) {
 		{name: "missing price", missing: "price", wantMissing: []string{"price_clean"}},
 		{name: "missing accrued interest", missing: "accrued", wantMissing: []string{"accrued_int"}},
 		{name: "missing duration", missing: "duration", wantMissing: []string{"duration_mod"}},
-		{name: "all fields missing", missing: "all", wantMissing: []string{"price_clean", "accrued_int", "duration_mod"}},
+		{name: "missing convexity", missing: "convexity", wantMissing: []string{"convexity"}},
+		{name: "all fields missing", missing: "all", wantMissing: []string{"price_clean", "accrued_int", "duration_mod", "convexity"}},
 		{name: "no market data", marketErr: gorm.ErrRecordNotFound, wantMissing: []string{"market_data"}},
 		{name: "wrapped missing market data", marketErr: fmt.Errorf("lookup: %w", gorm.ErrRecordNotFound), wantMissing: []string{"market_data"}},
 		{name: "instrument not found", instrumentErr: gorm.ErrRecordNotFound, wantErr: ErrInstrumentNotFound},
@@ -47,11 +48,11 @@ func TestGetInstrumentData(t *testing.T) {
 			if wantSource == "" {
 				wantSource = models.SourceMoex
 			}
-			price, accrued, duration := 1000.0, 0.0, 3.0
+			price, accrued, duration, convexity := 1000.0, 0.0, 3.0, 12.5
 			data := models.MarketData{
 				InstrumentID: instrument.ID, Source: wantSource,
 				TradeDate:  time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
-				PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration,
+				PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity,
 			}
 			if tt.missing == "price" || tt.missing == "all" {
 				data.PriceClean = nil
@@ -61,6 +62,9 @@ func TestGetInstrumentData(t *testing.T) {
 			}
 			if tt.missing == "duration" || tt.missing == "all" {
 				data.DurationMod = nil
+			}
+			if tt.missing == "convexity" || tt.missing == "all" {
+				data.Convexity = nil
 			}
 			lookupCalls, marketCalls := 0, 0
 			store := &fakeStore{

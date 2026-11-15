@@ -288,6 +288,7 @@ func TestCalculationDataErrors(t *testing.T) {
 		{name: "missing price", missing: "price", wantStatus: 422, wantCode: "missing_parameter"},
 		{name: "missing accrued interest", missing: "accrued", wantStatus: 422, wantCode: "missing_parameter"},
 		{name: "missing duration", missing: "duration", wantStatus: 422, wantCode: "missing_duration"},
+		{name: "missing convexity", missing: "convexity", wantStatus: 422, wantCode: "missing_parameter"},
 		{name: "missing market data", marketErr: gorm.ErrRecordNotFound, wantStatus: 422, wantCode: "calculation_data_not_found"},
 		{name: "wrapped missing market data", marketErr: fmt.Errorf("lookup: %w", gorm.ErrRecordNotFound), wantStatus: 422, wantCode: "calculation_data_not_found"},
 		{name: "instrument disappears", idErr: gorm.ErrRecordNotFound, wantStatus: 422, wantCode: "calculation_data_not_found"},
@@ -309,6 +310,8 @@ func TestCalculationDataErrors(t *testing.T) {
 				data.AccruedInt = nil
 			case "duration":
 				data.DurationMod = nil
+			case "convexity":
+				data.Convexity = nil
 			}
 			store.marketData[instrumentID] = data
 			body, err := json.Marshal(CalculationRequest{Positions: positions[:1]})

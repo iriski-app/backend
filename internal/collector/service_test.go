@@ -52,8 +52,41 @@ func TestRunSuccess(t *testing.T) {
 		}
 	}
 	assertNumber(t, "duration", store.saved[0].marketData.DurationMod, 1.6)
+	for _, record := range store.saved {
+		if record.marketData.Convexity == nil || *record.marketData.Convexity <= 0 {
+			t.Fatalf("convexity was not calculated: %+v", record.marketData)
+		}
+	}
+	if client.calendarCalls != 1 || len(client.bondizationCalls) != 2 {
+		t.Fatalf("unexpected convexity requests: calendars %d, bonds %v", client.calendarCalls, client.bondizationCalls)
+	}
 	if store.saved[1].marketData.DurationMod != nil {
 		t.Fatal("missing duration was replaced")
+	}
+}
+
+func TestRunKeepsMarketDataWhenConvexityUnavailable(t *testing.T) {
+	for _, name := range []string{"missing yield", "bondization error", "calendar error"} {
+		t.Run(name, func(t *testing.T) {
+			store := &collectorStoreFake{}
+			client := newCollectorClientFake()
+			addCollectorPosition(client, "TQOB", "BOND1", "RU000A0JS3W6")
+			switch name {
+			case "missing yield":
+				client.history["TQOB"][0].YieldClose = nil
+			case "bondization error":
+				client.bondizationError = errors.New("source unavailable")
+			case "calendar error":
+				client.calendarError = errors.New("calendar unavailable")
+			}
+			result, err := NewService(store, client).Run(context.Background(), collectorTradeDate())
+			if err == nil || result.Status != models.ETLStatusPartialSuccess || result.RowsLoaded != 1 || result.RowsRejected != 0 {
+				t.Fatalf("unexpected result: %+v, error: %v", result, err)
+			}
+			if len(store.saved) != 1 || store.saved[0].marketData.Convexity != nil || store.errorMessage == "" {
+				t.Fatalf("market data or error was not preserved: %+v", store)
+			}
+		})
 	}
 }
 
@@ -363,6 +396,10 @@ type collectorClientFake struct {
 	historyErrors    map[string]error
 	calls            []string
 	dates            []time.Time
+	bondizationError error
+	calendarError    error
+	bondizationCalls []string
+	calendarCalls    int
 }
 
 func (c *collectorClientFake) GetInstruments(ctx context.Context, board string) ([]moex.Instrument, error) {
@@ -374,6 +411,22 @@ func (c *collectorClientFake) GetMarketData(ctx context.Context, board string, d
 	c.calls = append(c.calls, "history "+board)
 	c.dates = append(c.dates, date)
 	return c.history[board], c.historyErrors[board]
+}
+
+func (c *collectorClientFake) GetBondization(ctx context.Context, secID string) (moex.Bondization, error) {
+	c.bondizationCalls = append(c.bondizationCalls, secID)
+	if c.bondizationError != nil {
+		return moex.Bondization{}, c.bondizationError
+	}
+	return moex.Bondization{
+		Coupons:       []moex.Coupon{{CouponDate: "2027-02-03", Value: testFloat(40)}},
+		Amortizations: []moex.Amortization{{AmortDate: "2027-02-03", Value: testFloat(1000)}},
+	}, nil
+}
+
+func (c *collectorClientFake) GetSettlementCalendar(ctx context.Context, year int) ([]moex.SettlementCalendar, error) {
+	c.calendarCalls++
+	return []moex.SettlementCalendar{{TradeDate: time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), CurrencyID: "RUB", StockMarket: testInt(0)}}, c.calendarError
 }
 
 func newCollectorClientFake() *collectorClientFake {

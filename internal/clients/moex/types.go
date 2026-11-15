@@ -67,6 +67,12 @@ type Offer struct {
 	Price     *float64 `json:"price"`
 }
 
+type SettlementCalendar struct {
+	TradeDate   string `json:"tradedate"`
+	CurrencyID  string `json:"currencyid"`
+	StockMarket *int   `json:"stock_market"`
+}
+
 type table struct {
 	Columns []string            `json:"columns"`
 	Data    [][]json.RawMessage `json:"data"`

@@ -196,11 +196,12 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 		{name: "missing price", missing: "price", wantErr: ErrMissingParameter},
 		{name: "missing accrued interest", missing: "accrued", wantErr: ErrMissingParameter},
 		{name: "missing duration", missing: "duration", wantErr: ErrPlaceHolder},
+		{name: "missing convexity", missing: "convexity", wantErr: ErrMissingParameter},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			price, accrued, duration := 1000.0, 10.0, 3.0
-			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}
+			price, accrued, duration, convexity := 1000.0, 10.0, 3.0, 12.5
+			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}
 			switch tt.missing {
 			case "price":
 				data.PriceClean = nil
@@ -208,6 +209,8 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 				data.AccruedInt = nil
 			case "duration":
 				data.DurationMod = nil
+			case "convexity":
+				data.Convexity = nil
 			}
 			store := &fakeStore{
 				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {

@@ -76,3 +76,20 @@ func TestGetBondizationEmptyAndInvalid(t *testing.T) {
 		t.Fatal("empty SECID must be rejected")
 	}
 }
+
+func TestGetSettlementCalendar(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rms/engines/currency/objects/settlementscalendar.json" || r.URL.Query().Get("year") != "2026" || r.URL.Query().Get("limit") != "unlimited" {
+			t.Errorf("unexpected calendar request: %s", r.URL.String())
+		}
+		writeMOEXResponse(t, w, `{"settlements_calendar":{"columns":["stock_market","currencyid","tradedate"],"data":[[0,"RUB","2026-11-04"],[null,"USD","2026-11-04"]]}}`)
+	}))
+	defer server.Close()
+	calendar, err := NewClient(server.URL, time.Second).GetSettlementCalendar(context.Background(), 2026)
+	if err != nil || len(calendar) != 2 {
+		t.Fatalf("got calendar %+v, error %v", calendar, err)
+	}
+	if calendar[0].TradeDate != "2026-11-04" || calendar[0].StockMarket == nil || *calendar[0].StockMarket != 0 || calendar[1].StockMarket != nil {
+		t.Fatalf("unexpected calendar: %+v", calendar)
+	}
+}

@@ -16,6 +16,8 @@ import (
 type Client interface {
 	GetInstruments(ctx context.Context, board string) ([]moex.Instrument, error)
 	GetMarketData(ctx context.Context, board string, date time.Time) ([]moex.MarketData, error)
+	GetBondization(ctx context.Context, secID string) (moex.Bondization, error)
+	GetSettlementCalendar(ctx context.Context, year int) ([]moex.SettlementCalendar, error)
 }
 
 type Storage interface {
@@ -38,8 +40,10 @@ type Result struct {
 }
 
 type marketDataRecord struct {
-	instrument models.Instrument
-	marketData *models.MarketData
+	instrument       models.Instrument
+	marketData       *models.MarketData
+	sourceInstrument moex.Instrument
+	sourceMarketData moex.MarketData
 }
 
 func NewService(store Storage, client Client) *Service {
@@ -80,6 +84,9 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 		runErr = errors.Join(runErr, err)
 	}
 	counts := make(map[string]int, len(records))
+	calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar)}
+	var convexityErr error
+	convexityFailures := 0
 	for _, record := range records {
 		if record.marketData != nil {
 			counts[record.instrument.ISIN]++
@@ -102,12 +109,29 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 			runErr = errors.Join(runErr, fmt.Errorf("%w: duplicate market data for %s", ErrInvalidData, record.instrument.ISIN))
 			continue
 		}
+		convexity, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, tradeDate)
+		if err != nil {
+			if ctx.Err() != nil {
+				runErr = errors.Join(runErr, ctx.Err())
+				break
+			}
+			convexityFailures++
+			if convexityErr == nil {
+				convexityErr = fmt.Errorf("%s: %w", record.sourceMarketData.SECID, err)
+			}
+			slog.WarnContext(ctx, "convexity unavailable", "secid", record.sourceMarketData.SECID, "error", err)
+		} else {
+			record.marketData.Convexity = &convexity
+		}
 		if err := s.Store.SaveMarketData(ctx, record.instrument, *record.marketData); err != nil {
 			result.RowsRejected++
 			runErr = errors.Join(runErr, fmt.Errorf("save market data for %s: %w", record.instrument.ISIN, err))
 			break
 		}
 		result.RowsLoaded++
+	}
+	if convexityFailures > 0 {
+		runErr = errors.Join(runErr, fmt.Errorf("convexity unavailable for %d instruments (first: %w)", convexityFailures, convexityErr))
 	}
 	status := models.ETLStatusSuccess
 	errorMessage := ""
@@ -198,7 +222,7 @@ func (s *Service) collectBoard(
 			collectErr = errors.Join(collectErr, fmt.Errorf("normalize market data for %s: %w", secID, err))
 			continue
 		}
-		records = append(records, marketDataRecord{instrument: instrument, marketData: &marketData})
+		records = append(records, marketDataRecord{instrument: instrument, marketData: &marketData, sourceInstrument: sourceInstrument, sourceMarketData: data})
 	}
 	for _, sourceInstrument := range instruments {
 		if err := ctx.Err(); err != nil {

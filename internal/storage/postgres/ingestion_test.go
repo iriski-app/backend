@@ -337,7 +337,7 @@ func TestCollectorRunStorage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if data.PriceClean == nil || *data.PriceClean != 990 || data.DurationMod == nil || *data.DurationMod != 1.6 {
+		if data.PriceClean == nil || *data.PriceClean != 990 || data.DurationMod == nil || *data.DurationMod != 1.6 || data.Convexity == nil || *data.Convexity <= 0 {
 			t.Fatalf("unexpected normalized market data: %+v", data)
 		}
 		var run models.ETLRun
@@ -372,6 +372,35 @@ func TestCollectorRunWithoutQuotes(t *testing.T) {
 	}
 	if _, err := store.GetMarketData(ctx, instrument.ID, models.SourceMoex, date); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("unexpected market data: %v", err)
+	}
+}
+
+func TestCollectorRunMissingConvexityClearsPreviousValue(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	date := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	client := &ingestionClientFake{}
+	service := collector.NewService(store, client)
+	if _, err := service.Run(ctx, date); err != nil {
+		t.Fatal(err)
+	}
+	instrument, err := store.GetInstrument(ctx, "RU000A0JS3W6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.GetMarketData(ctx, instrument.ID, models.SourceMoex, date)
+	if err != nil || stored.Convexity == nil {
+		t.Fatalf("first run did not save convexity: %+v, error: %v", stored, err)
+	}
+	sourceErr := errors.New("bondization unavailable")
+	client.bondizationErr = sourceErr
+	result, err := service.Run(ctx, date)
+	if !errors.Is(err, sourceErr) || result.Status != models.ETLStatusPartialSuccess || result.RowsLoaded != 1 {
+		t.Fatalf("unexpected failed convexity result: %+v, error: %v", result, err)
+	}
+	stored, err = store.GetMarketData(ctx, instrument.ID, models.SourceMoex, date)
+	if err != nil || stored.Convexity != nil || stored.PriceClean == nil || stored.DurationMod == nil {
+		t.Fatalf("stale convexity or missing market data: %+v, error: %v", stored, err)
 	}
 }
 
@@ -585,7 +614,8 @@ func ingestionMarketData(instrumentID uuid.UUID) models.MarketData {
 }
 
 type ingestionClientFake struct {
-	noQuotes bool
+	noQuotes       bool
+	bondizationErr error
 }
 
 func (c *ingestionClientFake) GetInstruments(ctx context.Context, board string) ([]moex.Instrument, error) {
@@ -635,6 +665,22 @@ func (c *ingestionClientFake) GetMarketData(ctx context.Context, board string, d
 		CouponDetails: "Фиксированный с известными купонами",
 		FaceValueType: "Фиксированный",
 	}}, nil
+}
+
+func (c *ingestionClientFake) GetBondization(ctx context.Context, secID string) (moex.Bondization, error) {
+	if c.bondizationErr != nil {
+		return moex.Bondization{}, c.bondizationErr
+	}
+	coupon, nominal := 40.0, 1000.0
+	return moex.Bondization{
+		Coupons:       []moex.Coupon{{CouponDate: "2027-02-03", Value: &coupon}},
+		Amortizations: []moex.Amortization{{AmortDate: "2027-02-03", Value: &nominal}},
+	}, nil
+}
+
+func (c *ingestionClientFake) GetSettlementCalendar(ctx context.Context, year int) ([]moex.SettlementCalendar, error) {
+	closed := 0
+	return []moex.SettlementCalendar{{TradeDate: time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), CurrencyID: "RUB", StockMarket: &closed}}, nil
 }
 
 var _ collector.Storage = (*Store)(nil)

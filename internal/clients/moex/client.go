@@ -95,6 +95,24 @@ func (c *Client) GetBondization(ctx context.Context, secID string) (Bondization,
 	return result, nil
 }
 
+func (c *Client) GetSettlementCalendar(ctx context.Context, year int) ([]SettlementCalendar, error) {
+	if year < 1 || year > 9999 {
+		return nil, errors.New("invalid MOEX settlement calendar year")
+	}
+	params := url.Values{"iss.meta": {"off"}, "limit": {"unlimited"}, "year": {strconv.Itoa(year)}}
+	var response struct {
+		Calendar table `json:"settlements_calendar"`
+	}
+	if err := c.get(ctx, "/rms/engines/currency/objects/settlementscalendar.json", params, &response); err != nil {
+		return nil, err
+	}
+	var calendar []SettlementCalendar
+	if err := decodeTable(response.Calendar, &calendar, "tradedate", "currencyid", "stock_market"); err != nil {
+		return nil, fmt.Errorf("decode settlement calendar: %w", err)
+	}
+	return calendar, nil
+}
+
 func (c *Client) GetMarketData(
 	ctx context.Context,
 	board string,
