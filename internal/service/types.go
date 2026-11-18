@@ -16,4 +16,11 @@ type InstrumentInfo struct {
 	MarketData          *models.MarketData
 	ReadyForCalculation bool
 	MissingParameters   []string
+	CalculationStatus   string
 }
+
+const (
+	CalculationReady            = "ready"
+	CalculationEstimatePossible = "estimate_possible"
+	CalculationUnavailable      = "unavailable"
+)

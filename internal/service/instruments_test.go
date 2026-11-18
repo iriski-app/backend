@@ -139,3 +139,48 @@ func TestGetInstrumentRejectsInvalidSourceBeforeStorage(t *testing.T) {
 		t.Fatalf("error = %v, want ErrInvalidSource", err)
 	}
 }
+
+func TestGetInstrumentEstimateStatus(t *testing.T) {
+	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name                                                 string
+		configured, exact, priceAvailable, featuresAvailable bool
+		want                                                 string
+	}{
+		{"possible", true, true, true, true, CalculationEstimatePossible},
+		{"not configured", false, true, true, true, CalculationUnavailable},
+		{"calendar unknown", true, false, true, true, CalculationUnavailable},
+		{"price missing", true, true, false, true, CalculationUnavailable},
+		{"features missing", true, true, true, false, CalculationUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := uuid.New()
+			price, accrued := 100.0, 0.0
+			data := models.MarketData{InstrumentID: id, Source: models.SourceMoex, TradeDate: date, PriceClean: &price, AccruedInt: &accrued}
+			if !tc.priceAvailable {
+				data.PriceClean = nil
+			}
+			store := &fakeStore{
+				GetInstrumentFunc:       func(context.Context, string) (models.Instrument, error) { return models.Instrument{ID: id}, nil },
+				GetLatestMarketDateFunc: func(context.Context, models.Source, time.Time) (time.Time, error) { return date, nil },
+				GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
+					return data, nil
+				},
+				GetBondFeaturesFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.BondFeatures, error) {
+					if !tc.featuresAvailable {
+						return models.BondFeatures{}, gorm.ErrRecordNotFound
+					}
+					return models.BondFeatures{SettlementDate: &date, SettlementCalendarExact: &tc.exact}, nil
+				},
+			}
+			svc := NewService(store)
+			if tc.configured {
+				svc.ML = estimateFunc(nil)
+			}
+			info, err := svc.GetInstrument(context.Background(), "RU000A0JX0J2", models.SourceMoex)
+			if err != nil || info.CalculationStatus != tc.want || info.ReadyForCalculation {
+				t.Fatalf("info=%+v error=%v", info, err)
+			}
+		})
+	}
+}

@@ -49,7 +49,21 @@ func (s *Service) GetInstrument(
 			if marketData.Convexity == nil {
 				missingParams = append(missingParams, "convexity")
 			}
-			return InstrumentInfo{Instrument: instrument, MarketData: &marketData, ReadyForCalculation: len(missingParams) == 0, MissingParameters: missingParams}, nil
+			status := CalculationUnavailable
+			if len(missingParams) == 0 {
+				status = CalculationReady
+			} else if source == models.SourceMoex && s.ML != nil && marketData.PriceClean != nil && marketData.AccruedInt != nil {
+				if store, ok := s.Store.(featureStore); ok {
+					features, featureErr := store.GetBondFeatures(ctx, instrument.ID, source, marketData.TradeDate)
+					if featureErr != nil && !errors.Is(featureErr, gorm.ErrRecordNotFound) {
+						return InstrumentInfo{}, featureErr
+					}
+					if featureErr == nil && features.SettlementDate != nil && features.SettlementCalendarExact != nil && *features.SettlementCalendarExact {
+						status = CalculationEstimatePossible
+					}
+				}
+			}
+			return InstrumentInfo{Instrument: instrument, MarketData: &marketData, ReadyForCalculation: len(missingParams) == 0, MissingParameters: missingParams, CalculationStatus: status}, nil
 		}
 		err = dataErr
 	}
@@ -60,6 +74,7 @@ func (s *Service) GetInstrument(
 			MarketData:          nil,
 			ReadyForCalculation: false,
 			MissingParameters:   missingParams,
+			CalculationStatus:   CalculationUnavailable,
 		}, nil
 	}
 	return InstrumentInfo{}, err

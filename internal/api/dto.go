@@ -32,6 +32,7 @@ type GetInstrumentResponse struct {
 	LoadedAt            *time.Time `json:"loaded_at"`
 	ReadyForCalculation bool       `json:"ready_for_calculation"`
 	MissingParameters   []string   `json:"missing_parameters"`
+	CalculationStatus   string     `json:"calculation_status"`
 }
 
 type CalculationRequest struct {
