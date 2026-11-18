@@ -177,6 +177,16 @@ func (s *Service) CalculatePositions(
 			DataSource:        models.SourceMoex,
 			DurationEstimate:  durationEstimate,
 			ConvexityEstimate: convexityEstimate,
+			YTM:               curMarketData.YTM,
+		}
+		if store, ok := s.Store.(featureStore); ok {
+			features, featureErr := store.GetBondFeatures(ctx, curInstrument.ID, curMarketData.Source, curMarketData.TradeDate)
+			if featureErr != nil && !errors.Is(featureErr, gorm.ErrRecordNotFound) {
+				return models.CalcRun{}, nil, featureErr
+			}
+			if featureErr == nil {
+				calcResults[i].FaceValue = features.FaceValue
+			}
 		}
 	}
 

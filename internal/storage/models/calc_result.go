@@ -28,4 +28,6 @@ type CalcResult struct {
 	DataSource        Source     `gorm:"type:text"`
 	DurationEstimate  *string    `gorm:"type:jsonb"`
 	ConvexityEstimate *string    `gorm:"type:jsonb"`
+	YTM               *float64   `gorm:"type:numeric(14,6)"`
+	FaceValue         *float64   `gorm:"type:numeric(18,6)"`
 }

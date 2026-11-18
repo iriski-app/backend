@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"gorm.io/gorm"
 )
 
 type fakeStore struct {
@@ -28,7 +29,7 @@ var _ Storage = (*fakeStore)(nil)
 
 func (s *fakeStore) GetBondFeatures(ctx context.Context, id uuid.UUID, source models.Source, date time.Time) (models.BondFeatures, error) {
 	if s.GetBondFeaturesFunc == nil {
-		panic("unexpected call to fakeStore.GetBondFeatures")
+		return models.BondFeatures{}, gorm.ErrRecordNotFound
 	}
 	return s.GetBondFeaturesFunc(ctx, id, source, date)
 }

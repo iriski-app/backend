@@ -57,13 +57,9 @@ func (h *Handler) StressScenario(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Внутренняя ошибка сервера", nil)
 		return
 	}
-	status := "not_requested"
 	if request.IncludeML {
-		status = "unavailable"
+		h.Service.AnalyzeStress(r.Context(), sessionID, &result)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(struct {
-		service.StressResult
-		MLAnalysis map[string]string `json:"ml_analysis"`
-	}{result, map[string]string{"status": status}})
+	_ = json.NewEncoder(w).Encode(result)
 }
