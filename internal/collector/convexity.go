@@ -21,11 +21,18 @@ type convexityCalculator struct {
 	client    Client
 	calendars map[int]settlementCalendar
 	currency  string
+	board     string
 }
 
 func (c *convexityCalculator) settlementDate(ctx context.Context, tradeDate time.Time) (time.Time, error) {
 	if tradeDate.Year() < 2023 {
 		return time.Time{}, fmt.Errorf("%w: settlement calendar before 2023 is unsupported", ErrInvalidData)
+	}
+	settlementDays := 1
+	transition := time.Date(2023, 7, 31, 0, 0, 0, 0, time.UTC)
+	tradeDay := time.Date(tradeDate.Year(), tradeDate.Month(), tradeDate.Day(), 0, 0, 0, 0, time.UTC)
+	if c.board == "TQOY" && tradeDay.Before(transition) {
+		settlementDays = 2
 	}
 	for date := tradeDate.AddDate(0, 0, 1); date.Before(tradeDate.AddDate(0, 1, 0)); date = date.AddDate(0, 0, 1) {
 		calendar, ok := c.calendars[date.Year()]
@@ -41,7 +48,10 @@ func (c *convexityCalculator) settlementDate(ctx context.Context, tradeDate time
 			open = exception
 		}
 		if open {
-			return date, nil
+			settlementDays--
+			if settlementDays == 0 {
+				return date, nil
+			}
 		}
 	}
 	return time.Time{}, fmt.Errorf("%w: settlement day not found", ErrInvalidData)
