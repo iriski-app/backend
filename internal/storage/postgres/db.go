@@ -18,12 +18,23 @@ func CreateTables(db *gorm.DB) error {
 		&models.Instrument{},
 		&models.LLMExplanation{},
 		&models.MarketData{},
+		&models.BondFeatures{},
 		&models.MetricImputation{},
 		&models.RateSensitivity{},
 	); err != nil {
 		return fmt.Errorf("[DB] Migration failed: %w", err)
 	}
-	return nil
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(741532081)).Error; err != nil {
+			return err
+		}
+		if !tx.Migrator().HasConstraint(&models.BondFeatures{}, "fk_bond_features_market_data") {
+			if err := tx.Exec(`ALTER TABLE bond_features ADD CONSTRAINT fk_bond_features_market_data FOREIGN KEY (instrument_id, trade_date, source) REFERENCES market_data (instrument_id, trade_date, source)`).Error; err != nil {
+				return fmt.Errorf("[DB] Failed to link bond features: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 func CreateDB() (*gorm.DB, error) {
