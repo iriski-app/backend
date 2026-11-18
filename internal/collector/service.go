@@ -24,7 +24,7 @@ type Client interface {
 type Storage interface {
 	CreateETLRun(ctx context.Context, source models.Source, tradeDate time.Time) (models.ETLRun, error)
 	UpsertInstrument(ctx context.Context, instrument models.Instrument) (models.Instrument, error)
-	SaveMarketData(ctx context.Context, instrument models.Instrument, marketData models.MarketData) error
+	SaveMarketDataWithFeatures(ctx context.Context, instrument models.Instrument, marketData models.MarketData, features models.BondFeatures) error
 	FinishETLRun(ctx context.Context, id uuid.UUID, status models.ETLStatus, rowsLoaded int, rowsRejected int, errorMessage string) error
 }
 
@@ -54,16 +54,8 @@ type convexityResult struct {
 	err   error
 }
 
-func (s *Service) calculateConvexities(ctx context.Context, records []marketDataRecord, counts map[string]int, tradeDate time.Time) <-chan convexityResult {
+func (s *Service) calculateConvexities(ctx context.Context, records []marketDataRecord, counts map[string]int, settlement time.Time, settlementErr error) <-chan convexityResult {
 	calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar)}
-	var settlement time.Time
-	var settlementErr error
-	for _, record := range records {
-		if record.marketData != nil && counts[record.instrument.ISIN] == 1 && record.instrument.CouponType != "floating" && record.sourceMarketData.YieldClose != nil && validNumber(*record.sourceMarketData.YieldClose) && *record.sourceMarketData.YieldClose > -100 {
-			settlement, settlementErr = calculator.settlementDate(ctx, tradeDate)
-			break
-		}
-	}
 	workers := s.Workers
 	if workers <= 0 {
 		workers = 5
@@ -156,7 +148,16 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 		}
 	}
 	workersCtx, stopWorkers := context.WithCancel(ctx)
-	calculations := s.calculateConvexities(workersCtx, records, counts, tradeDate)
+	var settlement time.Time
+	var settlementErr error
+	for _, record := range records {
+		if record.marketData != nil && counts[record.instrument.ISIN] == 1 {
+			calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar)}
+			settlement, settlementErr = calculator.settlementDate(ctx, tradeDate)
+			break
+		}
+	}
+	calculations := s.calculateConvexities(workersCtx, records, counts, settlement, settlementErr)
 	pending := make(map[int]convexityResult)
 	for index, record := range records {
 		if err := ctx.Err(); err != nil {
@@ -227,7 +228,27 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 				record.marketData.Convexity = &convexity
 			}
 		}
-		if err := s.Store.SaveMarketData(ctx, record.instrument, *record.marketData); err != nil {
+		features := normalizeBondFeatures(record.sourceMarketData, *record.marketData)
+		if settlementErr == nil && !settlement.IsZero() {
+			exact := true
+			features.SettlementCalendarExact = &exact
+			features.SettlementDate = &settlement
+		}
+		if record.marketData.DurationMod == nil || record.marketData.Convexity == nil {
+			schedule, err := s.Client.GetBondization(ctx, record.sourceMarketData.SECID)
+			if err != nil {
+				if ctx.Err() != nil {
+					runErr = errors.Join(runErr, ctx.Err())
+					break
+				}
+				slog.WarnContext(ctx, "ML feature schedule unavailable", "secid", record.sourceMarketData.SECID, "error", err)
+			} else {
+				if settlementErr == nil && !settlement.IsZero() {
+					fillCouponPeriod(&features, schedule, settlement)
+				}
+			}
+		}
+		if err := s.Store.SaveMarketDataWithFeatures(ctx, record.instrument, *record.marketData, features); err != nil {
 			result.RowsRejected++
 			runErr = errors.Join(runErr, fmt.Errorf("save market data for %s: %w", record.instrument.ISIN, err))
 			break

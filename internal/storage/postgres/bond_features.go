@@ -13,7 +13,7 @@ func (s *Store) UpsertBondFeatures(ctx context.Context, features models.BondFeat
 	return s.db.WithContext(ctx).Omit(clause.Associations).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "instrument_id"}, {Name: "trade_date"}, {Name: "source"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"maturity_date", "yield_date", "coupon_type", "coupon_freq", "coupon_period_days",
+			"maturity_date", "settlement_date", "yield_date", "coupon_type", "coupon_freq", "coupon_period_days",
 			"coupon_percent", "coupon_value", "currency", "face_value", "ytm", "has_buyback",
 			"is_government", "settlement_calendar_exact", "is_structured", "loaded_at",
 		}),

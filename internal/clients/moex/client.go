@@ -147,6 +147,14 @@ func (c *Client) GetMarketData(
 		if err != nil {
 			return nil, err
 		}
+		for _, column := range response.History.Columns {
+			if column == "BUYBACKDATE" {
+				for i := range page {
+					page[i].BuybackDateAvailable = true
+				}
+				break
+			}
+		}
 		var cursors []cursor
 		err = decodeTable(response.Cursor, &cursors, "INDEX", "TOTAL", "PAGESIZE")
 		if err != nil {

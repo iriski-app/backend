@@ -12,6 +12,7 @@ type BondFeatures struct {
 	TradeDate               time.Time  `gorm:"type:date;primaryKey"`
 	Source                  Source     `gorm:"type:text;primaryKey"`
 	MaturityDate            *time.Time `gorm:"type:date"`
+	SettlementDate          *time.Time `gorm:"type:date"`
 	YieldDate               *time.Time `gorm:"type:date"`
 	CouponType              *string    `gorm:"type:text"`
 	CouponFreq              *float64   `gorm:"type:numeric(10,4)"`

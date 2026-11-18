@@ -20,25 +20,27 @@ type Instrument struct {
 }
 
 type MarketData struct {
-	SECID          string   `json:"SECID"`
-	BoardID        string   `json:"BOARDID"`
-	TradeDate      string   `json:"TRADEDATE"`
-	Close          *float64 `json:"CLOSE"`
-	AccruedInt     *float64 `json:"ACCINT"`
-	YieldClose     *float64 `json:"YIELDCLOSE"`
-	Duration       *float64 `json:"DURATION"`
-	FaceValue      *float64 `json:"FACEVALUE"`
-	FaceUnit       string   `json:"FACEUNIT"`
-	CurrencyID     string   `json:"CURRENCYID"`
-	NumTrades      *int     `json:"NUMTRADES"`
-	TradingSession *int     `json:"TRADINGSESSION"`
-	CouponPercent  *float64 `json:"COUPONPERCENT"`
-	MaturityDate   string   `json:"MATDATE"`
-	BuybackDate    string   `json:"BUYBACKDATE"`
-	OfferDate      string   `json:"OFFERDATE"`
-	BondType       string   `json:"BONDTYPE"`
-	CouponDetails  string   `json:"COUPON_DETAILS"`
-	FaceValueType  string   `json:"FACEVALUE_TYPE"`
+	SECID                string   `json:"SECID"`
+	BoardID              string   `json:"BOARDID"`
+	TradeDate            string   `json:"TRADEDATE"`
+	Close                *float64 `json:"CLOSE"`
+	AccruedInt           *float64 `json:"ACCINT"`
+	YieldClose           *float64 `json:"YIELDCLOSE"`
+	Duration             *float64 `json:"DURATION"`
+	FaceValue            *float64 `json:"FACEVALUE"`
+	FaceUnit             string   `json:"FACEUNIT"`
+	CurrencyID           string   `json:"CURRENCYID"`
+	NumTrades            *int     `json:"NUMTRADES"`
+	TradingSession       *int     `json:"TRADINGSESSION"`
+	CouponPercent        *float64 `json:"COUPONPERCENT"`
+	CouponValue          *float64 `json:"COUPONVALUE"`
+	MaturityDate         string   `json:"MATDATE"`
+	BuybackDate          string   `json:"BUYBACKDATE"`
+	BuybackDateAvailable bool     `json:"-"`
+	OfferDate            string   `json:"OFFERDATE"`
+	BondType             string   `json:"BONDTYPE"`
+	CouponDetails        string   `json:"COUPON_DETAILS"`
+	FaceValueType        string   `json:"FACEVALUE_TYPE"`
 }
 
 type Bondization struct {

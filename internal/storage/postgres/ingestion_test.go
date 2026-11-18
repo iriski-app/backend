@@ -574,7 +574,7 @@ func newIngestionStore(t *testing.T) *Store {
 	if err := tx.Exec("SET LOCAL search_path TO " + schema).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.AutoMigrate(&models.Instrument{}, &models.MarketData{}, &models.ETLRun{}); err != nil {
+	if err := tx.AutoMigrate(&models.Instrument{}, &models.MarketData{}, &models.ETLRun{}, &models.BondFeatures{}); err != nil {
 		t.Fatal(err)
 	}
 	return NewStore(tx)

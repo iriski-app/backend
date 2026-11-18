@@ -44,3 +44,22 @@ func TestBondFeaturesSnapshot(t *testing.T) {
 		t.Fatal("snapshot without a market record was accepted")
 	}
 }
+
+func TestSaveMarketDataWithFeaturesRollsBack(t *testing.T) {
+	store := newIngestionStore(t)
+	if err := CreateTables(store.db); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	instrument := ingestionInstrument()
+	market := ingestionMarketData(instrument.ID)
+	tooLarge := 1e30
+	features := models.BondFeatures{FaceValue: &tooLarge, LoadedAt: time.Now().UTC()}
+	if err := store.SaveMarketDataWithFeatures(ctx, instrument, market, features); err == nil {
+		t.Fatal("expected invalid feature to fail")
+	}
+	var count int64
+	if err := store.db.Model(&models.Instrument{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("instrument count=%d, error=%v", count, err)
+	}
+}
