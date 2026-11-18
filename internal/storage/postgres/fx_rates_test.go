@@ -12,20 +12,20 @@ import (
 
 func TestFXRatesSaveAndFind(t *testing.T) {
 	store := newIngestionStore(t)
-	if err := store.db.AutoMigrate(&models.FXRate{}); err != nil {
+	if err := store.db.AutoMigrate(&models.FXRate{}, &models.FXRateObservation{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
 	date := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
 	rate := models.FXRate{Currency: "USD", EffectiveDate: date, Source: "cbr", Nominal: 1, Value: "80.123456", LoadedAt: date}
-	if err := store.SaveFXRates(ctx, []models.FXRate{rate}); err != nil {
+	if err := store.SaveFXRates(ctx, date, []models.FXRate{rate}); err != nil {
 		t.Fatal(err)
 	}
 	rate.Value = "81.123456"
-	if err := store.SaveFXRates(ctx, []models.FXRate{rate}); err != nil {
+	if err := store.SaveFXRates(ctx, date, []models.FXRate{rate}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.GetFXRate(ctx, "USD", "cbr", date.AddDate(0, 0, 1))
+	got, err := store.GetFXRate(ctx, "USD", "cbr", date)
 	if err != nil || got.Value != "81.123456000000" {
 		t.Fatalf("unexpected updated rate: %+v, error: %v", got, err)
 	}
@@ -36,5 +36,17 @@ func TestFXRatesSaveAndFind(t *testing.T) {
 	_, err = store.GetFXRate(ctx, "USD", "cbr", date.AddDate(0, 0, -1))
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected no future rate, got %v", err)
+	}
+	_, err = store.GetFXRate(ctx, "USD", "cbr", date.AddDate(0, 0, 3))
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("unconfirmed date: %v", err)
+	}
+	holiday := date.AddDate(0, 0, 9)
+	if err := store.SaveFXRates(ctx, holiday, []models.FXRate{rate}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.GetFXRate(ctx, "USD", "cbr", holiday)
+	if err != nil || !got.EffectiveDate.Equal(date) {
+		t.Fatalf("holiday rate: %+v, %v", got, err)
 	}
 }

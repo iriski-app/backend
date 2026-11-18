@@ -72,7 +72,7 @@ func run() error {
 		}
 		rates = append(rates, models.FXRate{Currency: rate.Currency, EffectiveDate: result.EffectiveDate, Source: "cbr", Nominal: rate.Nominal, Value: value, LoadedAt: loadedAt})
 	}
-	if err := postgres.NewStore(db).SaveFXRates(ctx, rates); err != nil {
+	if err := postgres.NewStore(db).SaveFXRates(ctx, result.RequestedDate, rates); err != nil {
 		return fmt.Errorf("save FX rates: %w", err)
 	}
 	slog.Info("FX rates saved", "requested_date", result.RequestedDate.Format("2006-01-02"), "effective_date", result.EffectiveDate.Format("2006-01-02"), "count", len(rates))

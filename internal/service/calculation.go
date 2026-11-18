@@ -214,9 +214,6 @@ type conversionRate struct {
 	date  *time.Time
 }
 
-// Rates older than seven calendar days require a fresh collector run.
-const maxFXRateAgeDays = 7
-
 func (s *Service) conversionRate(ctx context.Context, currency string, date time.Time, cache map[string]conversionRate) (conversionRate, error) {
 	if currency == "RUB" {
 		return conversionRate{value: 1}, nil
@@ -236,8 +233,8 @@ func (s *Service) conversionRate(ctx context.Context, currency string, date time
 	}
 	effective := time.Date(fx.EffectiveDate.Year(), fx.EffectiveDate.Month(), fx.EffectiveDate.Day(), 0, 0, 0, 0, time.UTC)
 	asOf := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
-	if effective.After(asOf) || effective.Before(asOf.AddDate(0, 0, -maxFXRateAgeDays)) {
-		return conversionRate{}, fmt.Errorf("%w: stale or future rate for %s", ErrMissingFXRate, currency)
+	if effective.After(asOf) {
+		return conversionRate{}, fmt.Errorf("%w: future rate for %s", ErrMissingFXRate, currency)
 	}
 	value, err := strconv.ParseFloat(fx.Value, 64)
 	if err != nil || fx.Nominal <= 0 || value <= 0 || math.IsInf(value, 0) || math.IsNaN(value) {

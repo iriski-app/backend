@@ -61,7 +61,6 @@ func TestConversionRateUnavailable(t *testing.T) {
 		err  error
 	}{
 		{name: "missing", err: gorm.ErrRecordNotFound},
-		{name: "stale", rate: models.FXRate{Value: "90", Nominal: 1, EffectiveDate: date.AddDate(0, 0, -8)}},
 		{name: "future", rate: models.FXRate{Value: "90", Nominal: 1, EffectiveDate: date.AddDate(0, 0, 1)}},
 		{name: "invalid nominal", rate: models.FXRate{Value: "90", EffectiveDate: date}},
 	} {
