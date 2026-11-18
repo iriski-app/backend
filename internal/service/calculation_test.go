@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"gorm.io/gorm"
 )
 
 func TestCalculateSuccess(t *testing.T) {
@@ -24,7 +26,7 @@ func TestCalculateSuccess(t *testing.T) {
 			}
 			tradeDate := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
 			price, accruedBuy, accruedSell := 1000.0, 10.0, 20.0
-			durationBuy, durationSell, convexity := 3.0, 2.0, 12.5
+			durationBuy, durationSell, convexity, zeroConvexity := 3.0, 2.0, 12.5, 0.0
 			marketData := map[uuid.UUID]models.MarketData{
 				instrumentIDs[0]: {
 					InstrumentID: instrumentIDs[0], TradeDate: tradeDate, Source: models.SourceMoex,
@@ -32,7 +34,7 @@ func TestCalculateSuccess(t *testing.T) {
 				},
 				instrumentIDs[1]: {
 					InstrumentID: instrumentIDs[1], TradeDate: tradeDate, Source: models.SourceMoex,
-					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell,
+					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell, Convexity: &zeroConvexity,
 				},
 			}
 			var savedRun models.CalcRun
@@ -40,6 +42,7 @@ func TestCalculateSuccess(t *testing.T) {
 			var requestedDates []time.Time
 			saveCalls := 0
 			store := &fakeStore{
+				GetLatestMarketDateFunc: func(_ context.Context, _ models.Source, _ time.Time) (time.Time, error) { return tradeDate, nil },
 				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
 					if _, ok := marketData[id]; !ok {
 						t.Fatalf("unexpected instrument ID: %v", id)
@@ -71,9 +74,9 @@ func TestCalculateSuccess(t *testing.T) {
 			var run models.CalcRun
 			var results []models.CalcResult
 			var err error
-			wantDV01 := []float64{3.03, -1.02}
+			wantDV01 := []float64{-3.02936875, 1.02}
 			wantValues := []float64{10100, 5100}
-			wantTotal := 2.01
+			wantTotal := -2.00936875
 
 			switch mode {
 			case "positions":
@@ -87,7 +90,7 @@ func TestCalculateSuccess(t *testing.T) {
 				}
 				run, results, err = svc.CalculateSingle(ctx, sessionID, "RU000A0JX0J2", models.DealSideBuy, 10)
 				positions, wantDV01, wantValues = positions[:1], wantDV01[:1], wantValues[:1]
-				wantTotal = 3.03
+				wantTotal = -3.02936875
 			case "basket":
 				store.GetBasketBySessionIDFunc = func(_ context.Context, id uuid.UUID) (models.Basket, error) {
 					if id != sessionID {
@@ -193,11 +196,12 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 		{name: "missing price", missing: "price", wantErr: ErrMissingParameter},
 		{name: "missing accrued interest", missing: "accrued", wantErr: ErrMissingParameter},
 		{name: "missing duration", missing: "duration", wantErr: ErrPlaceHolder},
+		{name: "missing convexity", missing: "convexity", wantErr: ErrMissingParameter},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			price, accrued, duration := 1000.0, 10.0, 3.0
-			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}
+			price, accrued, duration, convexity := 1000.0, 10.0, 3.0, 12.5
+			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}
 			switch tt.missing {
 			case "price":
 				data.PriceClean = nil
@@ -205,6 +209,8 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 				data.AccruedInt = nil
 			case "duration":
 				data.DurationMod = nil
+			case "convexity":
+				data.Convexity = nil
 			}
 			store := &fakeStore{
 				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
@@ -225,7 +231,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 	for _, stage := range []string{"instrument", "market data", "save"} {
 		t.Run(stage, func(t *testing.T) {
 			wantErr := errors.New("storage failure")
-			price, accrued, duration := 1000.0, 0.0, 3.0
+			price, accrued, duration, convexity := 1000.0, 0.0, 3.0, 0.0
 			saveCalls := 0
 			store := &fakeStore{
 				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
@@ -238,7 +244,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 					if stage == "market data" {
 						return models.MarketData{}, wantErr
 					}
-					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}, nil
+					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
 				},
 				SaveCalculationFunc: func(_ context.Context, run models.CalcRun, results []models.CalcResult) error {
 					saveCalls++
@@ -248,7 +254,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 					if run.Status != models.CalcStatusSuccess || len(results) != 1 {
 						t.Fatal("unexpected calculation passed to SaveCalculation")
 					}
-					assertCalculationFloat(t, "DV01", results[0].DV01, 0.3)
+					assertCalculationFloat(t, "DV01", results[0].DV01, -0.3)
 					return wantErr
 				},
 			}
@@ -263,7 +269,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 }
 
 func TestCalculatePositionsInvalidSecondPosition(t *testing.T) {
-	price, accrued, duration := 1000.0, 10.0, 3.0
+	price, accrued, duration, convexity := 1000.0, 10.0, 3.0, 0.0
 	marketCalls := 0
 	store := &fakeStore{
 		GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
@@ -271,7 +277,7 @@ func TestCalculatePositionsInvalidSecondPosition(t *testing.T) {
 		},
 		GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
 			marketCalls++
-			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}, nil
+			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
 		},
 	}
 	positions := []PositionInput{
@@ -348,5 +354,57 @@ func assertCalculationError(t *testing.T, run models.CalcRun, results []models.C
 	}
 	if !reflect.DeepEqual(run, models.CalcRun{}) || len(results) != 0 {
 		t.Error("failed calculation must not return a run or partial results")
+	}
+}
+
+func TestGetCalculation(t *testing.T) {
+	storageErr := errors.New("calculation lookup failed")
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "saved snapshot"},
+		{name: "not found", err: gorm.ErrRecordNotFound, wantErr: ErrCalculationNotFound},
+		{name: "wrapped not found", err: fmt.Errorf("lookup: %w", gorm.ErrRecordNotFound), wantErr: ErrCalculationNotFound},
+		{name: "storage error", err: storageErr, wantErr: storageErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sessionID, calcID := uuid.New(), uuid.New()
+			dv01 := 2.888887
+			wantRun := models.CalcRun{
+				ID: calcID, SessionID: sessionID, Status: models.CalcStatusSuccess,
+				AsOfDate: time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC), TotalDV01Rub: &dv01,
+			}
+			wantResults := []models.CalcResult{
+				{ID: uuid.New(), CalcRunID: calcID, InstrumentID: uuid.New(), DV01: &dv01},
+			}
+			calls := 0
+			store := &fakeStore{
+				GetCalculationFunc: func(gotCtx context.Context, gotSessionID uuid.UUID, gotCalcID uuid.UUID) (models.CalcRun, []models.CalcResult, error) {
+					calls++
+					if gotCtx != ctx || gotSessionID != sessionID || gotCalcID != calcID {
+						t.Error("incorrect context, session ID or calculation ID passed to storage")
+					}
+					return wantRun, wantResults, tt.err
+				},
+			}
+			run, results, err := NewService(store).GetCalculation(ctx, sessionID, calcID)
+			if calls != 1 {
+				t.Errorf("GetCalculation called %d times, want 1", calls)
+			}
+			if tt.wantErr != nil {
+				assertCalculationError(t, run, results, err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(run, wantRun) || !reflect.DeepEqual(results, wantResults) {
+				t.Error("returned snapshot differs from saved values")
+			}
+		})
 	}
 }

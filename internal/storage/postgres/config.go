@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -24,8 +25,8 @@ func GetenvWithDefault(cuery, defaultValue string) string {
 }
 
 func LoadConfig() (Config, error) {
-	err := godotenv.Overload()
-	if err != nil {
+	err := godotenv.Load()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Config{}, err
 	}
 

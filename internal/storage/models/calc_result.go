@@ -16,7 +16,7 @@ type CalcResult struct {
 	Quantity     int64      `gorm:"type:bigint;not null"`
 	Currency     string     `gorm:"type:char(3);not null"`
 	MarketDate   *time.Time `gorm:"type:date"`
-	PriceClean   *float64   `gorm:"type:numeric(12,6)"`
+	PriceClean   *float64   `gorm:"type:numeric(18,6)"`
 	AccruedInt   *float64   `gorm:"type:numeric(18,6)"`
 	FairValue    *float64   `gorm:"type:numeric(20,6)"`
 	DurationMod  *float64   `gorm:"type:numeric(12,6)"`

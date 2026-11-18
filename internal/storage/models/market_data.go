@@ -12,7 +12,7 @@ type MarketData struct {
 	TradeDate          time.Time `gorm:"type:date;primaryKey"`
 	Source             Source    `gorm:"type:text;primaryKey"`
 	PriceType          string    `gorm:"type:text;not null"`
-	PriceClean         *float64  `gorm:"type:numeric(12,6)"`
+	PriceClean         *float64  `gorm:"type:numeric(18,6)"`
 	PriceCurrency      *string   `gorm:"type:char(3)"`
 	AccruedInt         *float64  `gorm:"type:numeric(18,6)"`
 	AccruedIntCurrency *string   `gorm:"type:char(3)"`
