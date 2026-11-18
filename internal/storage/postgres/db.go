@@ -17,6 +17,7 @@ func CreateTables(db *gorm.DB) error {
 			&models.CalcRun{},
 			&models.BasketItem{},
 			&models.ETLRun{},
+			&models.FXRate{},
 			&models.Instrument{},
 			&models.LLMExplanation{},
 			&models.MarketData{},
