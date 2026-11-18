@@ -15,6 +15,7 @@ import (
 	"github.com/iriski-app/backend/internal/clients/cbr"
 	"github.com/iriski-app/backend/internal/storage/models"
 	"github.com/iriski-app/backend/internal/storage/postgres"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -39,6 +40,9 @@ func run() error {
 	date, err := time.Parse("2006-01-02", *dateValue)
 	if err != nil || date.IsZero() {
 		return errors.New("invalid --date, expected YYYY-MM-DD")
+	}
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("load .env: %w", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
