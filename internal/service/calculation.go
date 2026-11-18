@@ -100,7 +100,11 @@ func (s *Service) CalculatePositions(
 			"%w: must be at least one position", ErrInvalidParameter)
 	}
 	calcRunID := uuid.New()
-	asOfDate, err := s.Store.GetLatestMarketDate(ctx, models.SourceMoex, marketDateCutoff(time.Now()))
+	ids := make([]uuid.UUID, len(positions))
+	for i, position := range positions {
+		ids[i] = position.InstrumentID
+	}
+	asOfDate, err := s.Store.GetLatestCommonMarketDate(ctx, ids, models.SourceMoex, marketDateCutoff(time.Now()))
 	if err != nil {
 		return models.CalcRun{}, nil, err
 	}

@@ -35,6 +35,10 @@ type calculationTestStore struct {
 	fxErr        error
 }
 
+func (s *calculationTestStore) GetLatestCommonMarketDate(ctx context.Context, ids []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
+	return s.GetLatestMarketDate(ctx, source, cutoff)
+}
+
 func (s *calculationTestStore) GetFXRate(context.Context, string, string, time.Time) (models.FXRate, error) {
 	return models.FXRate{}, s.fxErr
 }

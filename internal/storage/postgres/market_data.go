@@ -56,3 +56,13 @@ func (s *Store) GetLatestMarketDate(ctx context.Context, source models.Source, c
 	).Order("trade_date DESC").First(&marketData).Error
 	return marketData.TradeDate, err
 }
+
+func (s *Store) GetLatestCommonMarketDate(ctx context.Context, instrumentIDs []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
+	var row struct{ TradeDate time.Time }
+	unique := make(map[uuid.UUID]struct{}, len(instrumentIDs))
+	for _, id := range instrumentIDs {
+		unique[id] = struct{}{}
+	}
+	err := s.db.WithContext(ctx).Model(&models.MarketData{}).Select("trade_date").Where("source = ? AND trade_date <= ? AND instrument_id IN ?", source, cutoff.Format("2006-01-02"), instrumentIDs).Group("trade_date").Having("COUNT(DISTINCT instrument_id) = ?", len(unique)).Order("trade_date DESC").Take(&row).Error
+	return row.TradeDate, err
+}

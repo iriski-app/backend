@@ -30,6 +30,10 @@ type instrumentTestStore struct {
 	marketCalls   int
 }
 
+func (s *instrumentTestStore) GetLatestCommonMarketDate(ctx context.Context, ids []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
+	return s.GetLatestMarketDate(ctx, source, cutoff)
+}
+
 func (s *instrumentTestStore) GetInstrument(_ context.Context, _ string) (models.Instrument, error) {
 	s.lookupCalls++
 	return s.instrument, s.instrumentErr

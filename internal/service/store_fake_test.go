@@ -26,6 +26,10 @@ type fakeStore struct {
 
 var _ Storage = (*fakeStore)(nil)
 
+func (s *fakeStore) GetLatestCommonMarketDate(ctx context.Context, ids []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
+	return s.GetLatestMarketDate(ctx, source, cutoff)
+}
+
 func (s *fakeStore) GetFXRate(ctx context.Context, currency, source string, date time.Time) (models.FXRate, error) {
 	if s.GetFXRateFunc == nil {
 		panic("unexpected call to fakeStore.GetFXRate")

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/storage/models"
 	"gorm.io/gorm"
 )
@@ -33,7 +34,7 @@ func (s *Service) GetInstrument(
 		return InstrumentInfo{}, err
 	}
 	missingParams := make([]string, 0, 4)
-	date, err := s.Store.GetLatestMarketDate(ctx, source, marketDateCutoff(time.Now()))
+	date, err := s.Store.GetLatestCommonMarketDate(ctx, []uuid.UUID{instrument.ID}, source, marketDateCutoff(time.Now()))
 	if err == nil {
 		marketData, dataErr := s.Store.GetMarketData(ctx, instrument.ID, source, date)
 		if dataErr == nil {
