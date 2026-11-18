@@ -68,7 +68,7 @@ func NormalizeInstrument(data moex.Instrument) (models.Instrument, error) {
 		ISIN:           isin,
 		Name:           name,
 		InstrumentType: "bond",
-		Currency:       "RUB",
+		Currency:       normalizeCurrency(data.FaceUnit),
 		FaceValue:      *data.FaceValue,
 		CouponType:     couponType,
 		CouponFreq:     couponFreq,
@@ -104,7 +104,7 @@ func NormalizeMarketData(
 		return models.MarketData{}, ErrNoTrades
 	}
 	numTrades := *data.NumTrades
-	currency := "RUB"
+	currency := normalizeCurrency(data.FaceUnit)
 	marketData := models.MarketData{
 		InstrumentID:       instrumentID,
 		TradeDate:          tradeDate,
@@ -140,15 +140,26 @@ func NormalizeMarketData(
 
 func validateCurrency(faceUnit string, currencyID string) error {
 	for _, currency := range []string{faceUnit, currencyID} {
-		switch strings.ToUpper(strings.TrimSpace(currency)) {
-		case "SUR", "RUB":
+		switch normalizeCurrency(currency) {
+		case "RUB", "CNY":
 		case "":
 			return fmt.Errorf("%w: currency", ErrInvalidData)
 		default:
 			return fmt.Errorf("%w: %s", ErrUnsupportedCurrency, currency)
 		}
 	}
+	if normalizeCurrency(faceUnit) != normalizeCurrency(currencyID) {
+		return fmt.Errorf("%w: different nominal and settlement currencies", ErrUnsupportedCurrency)
+	}
 	return nil
+}
+
+func normalizeCurrency(currency string) string {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "SUR" {
+		return "RUB"
+	}
+	return currency
 }
 
 func validateInstrumentType(bondType string, couponDetails string, faceValueType string) error {
@@ -158,7 +169,10 @@ func validateInstrumentType(bondType string, couponDetails string, faceValueType
 	if strings.TrimSpace(bondType) == "Облигация с плавающим купоном" {
 		return nil
 	}
-	if strings.TrimSpace(bondType) != "Облигация с фиксированным (известным) купоном" {
+	if strings.TrimSpace(bondType) == "Валютная облигация" && strings.TrimSpace(couponDetails) != "Фиксированный с известными купонами" {
+		return ErrUnsupportedInstrument
+	}
+	if strings.TrimSpace(bondType) != "Облигация с фиксированным (известным) купоном" && strings.TrimSpace(bondType) != "Валютная облигация" {
 		return ErrUnsupportedInstrument
 	}
 	details := strings.TrimSpace(couponDetails)

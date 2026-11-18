@@ -55,13 +55,19 @@ type convexityResult struct {
 }
 
 func (s *Service) calculateConvexities(ctx context.Context, records []marketDataRecord, counts map[string]int, tradeDate time.Time) <-chan convexityResult {
-	calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar)}
-	var settlement time.Time
-	var settlementErr error
+	type settlementResult struct {
+		date time.Time
+		err  error
+	}
+	settlements := make(map[string]settlementResult)
 	for _, record := range records {
 		if record.marketData != nil && counts[record.instrument.ISIN] == 1 && record.instrument.CouponType != "floating" && record.sourceMarketData.YieldClose != nil && validNumber(*record.sourceMarketData.YieldClose) && *record.sourceMarketData.YieldClose > -100 {
-			settlement, settlementErr = calculator.settlementDate(ctx, tradeDate)
-			break
+			currency := record.instrument.Currency
+			if _, ok := settlements[currency]; !ok {
+				calculator := convexityCalculator{client: s.Client, calendars: make(map[int]settlementCalendar), currency: currency}
+				date, err := calculator.settlementDate(ctx, tradeDate)
+				settlements[currency] = settlementResult{date: date, err: err}
+			}
 		}
 	}
 	workers := s.Workers
@@ -80,7 +86,9 @@ func (s *Service) calculateConvexities(ctx context.Context, records []marketData
 			defer wg.Done()
 			for index := range jobs {
 				record := records[index]
-				value, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, settlement, settlementErr)
+				settlement := settlements[record.instrument.Currency]
+				calculator := convexityCalculator{client: s.Client}
+				value, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, settlement.date, settlement.err)
 				select {
 				case completed <- convexityResult{index: index, value: value, err: err}:
 				case <-ctx.Done():
@@ -137,7 +145,7 @@ func (s *Service) Run(ctx context.Context, tradeDate time.Time) (Result, error) 
 	slog.InfoContext(ctx, "starting MOEX collection", "run_id", run.ID, "trade_date", tradeDate.Format("2006-01-02"))
 	var records []marketDataRecord
 	var runErr error
-	for _, board := range []string{"TQOB", "TQCB"} {
+	for _, board := range []string{"TQOB", "TQCB", "TQOY"} {
 		if err := ctx.Err(); err != nil {
 			runErr = errors.Join(runErr, err)
 			break
@@ -327,6 +335,11 @@ func (s *Service) collectBoard(
 			}
 			rejected++
 			collectErr = errors.Join(collectErr, fmt.Errorf("normalize market data for %s: %w", secID, err))
+			continue
+		}
+		if instrument.Currency != *marketData.PriceCurrency {
+			rejected++
+			collectErr = errors.Join(collectErr, fmt.Errorf("%w: inconsistent currencies for %s", ErrInvalidData, secID))
 			continue
 		}
 		if (instrument.CouponType == "floating") != (strings.TrimSpace(data.BondType) == "Облигация с плавающим купоном") {

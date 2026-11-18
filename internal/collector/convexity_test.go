@@ -88,3 +88,19 @@ func TestSettlementDateRejectsMissingCalendar(t *testing.T) {
 		t.Fatalf("got error %v, want invalid calendar", err)
 	}
 }
+
+func TestSettlementDateUsesCurrencyCalendar(t *testing.T) {
+	closed := 0
+	client := &calendarClient{entries: map[int][]moex.SettlementCalendar{2026: {
+		{TradeDate: "2026-10-01", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-02", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-05", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-06", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-07", CurrencyID: "CNY", StockMarket: &closed},
+	}}}
+	calc := convexityCalculator{client: client, calendars: make(map[int]settlementCalendar), currency: "CNY"}
+	got, err := calc.settlementDate(context.Background(), time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil || got.Format("2006-01-02") != "2026-10-08" {
+		t.Fatalf("got %s, error %v", got, err)
+	}
+}

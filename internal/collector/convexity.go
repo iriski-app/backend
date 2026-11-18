@@ -20,6 +20,7 @@ type settlementCalendar struct {
 type convexityCalculator struct {
 	client    Client
 	calendars map[int]settlementCalendar
+	currency  string
 }
 
 func (c *convexityCalculator) settlementDate(ctx context.Context, tradeDate time.Time) (time.Time, error) {
@@ -52,10 +53,18 @@ func (c *convexityCalculator) loadCalendar(ctx context.Context, year int) settle
 		return settlementCalendar{err: fmt.Errorf("get settlement calendar %d: %w", year, err)}
 	}
 	days := make(map[string]bool)
-	for _, currency := range []string{"-", "RUB"} {
+	settlementCurrency := c.currency
+	if settlementCurrency == "" {
+		settlementCurrency = "RUB"
+	}
+	foundCurrency := false
+	for _, currency := range []string{"-", settlementCurrency} {
 		for _, entry := range entries {
 			if strings.TrimSpace(entry.CurrencyID) != currency || entry.StockMarket == nil {
 				continue
+			}
+			if currency == settlementCurrency {
+				foundCurrency = true
 			}
 			date, err := time.Parse("2006-01-02", entry.TradeDate)
 			if err != nil || date.Year() != year || (*entry.StockMarket != 0 && *entry.StockMarket != 1) {
@@ -64,8 +73,8 @@ func (c *convexityCalculator) loadCalendar(ctx context.Context, year int) settle
 			days[entry.TradeDate] = *entry.StockMarket == 1
 		}
 	}
-	if len(days) == 0 {
-		return settlementCalendar{err: fmt.Errorf("%w: no RUB settlement calendar for %d", ErrInvalidData, year)}
+	if len(days) == 0 || (settlementCurrency != "RUB" && !foundCurrency) {
+		return settlementCalendar{err: fmt.Errorf("%w: no %s settlement calendar for %d", ErrInvalidData, settlementCurrency, year)}
 	}
 	return settlementCalendar{days: days}
 }
