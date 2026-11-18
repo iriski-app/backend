@@ -98,6 +98,8 @@ func (s *Service) CalculatePositions(
 		return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf(
 			"%w: must be at least one position", ErrInvalidParameter)
 	}
+	mlCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	calcRunID := uuid.New()
 	asOfDate, err := s.Store.GetLatestMarketDate(ctx, models.SourceMoex, marketDateCutoff(time.Now()))
 	if err != nil {
@@ -139,14 +141,14 @@ func (s *Service) CalculatePositions(
 		}
 		var durationEstimate, convexityEstimate *string
 		if curMarketData.DurationMod == nil {
-			value, metadata, err := s.estimateMetric(ctx, curMarketData, mlv1.MetricKind_METRIC_KIND_DURATION_MOD)
+			value, metadata, err := s.estimateMetric(mlCtx, curMarketData, mlv1.MetricKind_METRIC_KIND_DURATION_MOD)
 			if err != nil {
 				return models.CalcRun{}, nil, err
 			}
 			curMarketData.DurationMod, durationEstimate = &value, &metadata
 		}
 		if curMarketData.Convexity == nil {
-			value, metadata, err := s.estimateMetric(ctx, curMarketData, mlv1.MetricKind_METRIC_KIND_CONVEXITY)
+			value, metadata, err := s.estimateMetric(mlCtx, curMarketData, mlv1.MetricKind_METRIC_KIND_CONVEXITY)
 			if err != nil {
 				return models.CalcRun{}, nil, err
 			}

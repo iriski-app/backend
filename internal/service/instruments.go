@@ -58,7 +58,7 @@ func (s *Service) GetInstrument(
 					if featureErr != nil && !errors.Is(featureErr, gorm.ErrRecordNotFound) {
 						return InstrumentInfo{}, featureErr
 					}
-					if featureErr == nil && features.SettlementDate != nil && features.SettlementCalendarExact != nil && *features.SettlementCalendarExact {
+					if featureErr == nil && eligibleForEstimate(features) {
 						status = CalculationEstimatePossible
 					}
 				}

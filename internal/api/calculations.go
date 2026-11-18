@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/service"
@@ -62,7 +64,8 @@ func (h *Handler) GetCalculation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
 	cookie, err := r.Cookie("session_id")
 	var sessionId uuid.UUID
 
@@ -129,6 +132,8 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "calculation_timeout", "Расчёт занял слишком много времени", nil)
 		case errors.Is(err, service.ErrInvalidParameter):
 			writeError(
 				w,

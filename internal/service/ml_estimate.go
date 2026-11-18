@@ -45,8 +45,8 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 	if err != nil {
 		return 0, "", fmt.Errorf("load ML features: %w", err)
 	}
-	if f.SettlementDate == nil || f.SettlementCalendarExact == nil || !*f.SettlementCalendarExact {
-		return 0, "", fmt.Errorf("%w: settlement calendar unavailable", ErrMissingParameter)
+	if !eligibleForEstimate(f) {
+		return 0, "", fmt.Errorf("%w: bond is not eligible for ML estimation", ErrMissingParameter)
 	}
 	features := &mlv1.BondFeatures{
 		YearsToMaturity: yearsUntil(f.SettlementDate, f.MaturityDate), YearsToYieldDate: yearsUntil(f.SettlementDate, f.YieldDate),
@@ -73,6 +73,13 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 		return 0, "", fmt.Errorf("encode ML metadata: %w", err)
 	}
 	return resp.Value, string(metadata), nil
+}
+
+func eligibleForEstimate(f models.BondFeatures) bool {
+	return f.SettlementDate != nil && f.SettlementCalendarExact != nil && *f.SettlementCalendarExact &&
+		f.YieldDate != nil && f.YieldDate.After(*f.SettlementDate) &&
+		f.CouponType != nil && (*f.CouponType == "fixed" || *f.CouponType == "zero") &&
+		f.IsStructured != nil && !*f.IsStructured
 }
 
 func validEstimate(value float64) bool {
