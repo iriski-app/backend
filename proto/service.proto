@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package ml_service.v1;
+
+// The Go backend generates its own client from this shared contract.
+option go_package = "github.com/iriski-app/backend/internal/clients/ml/v1;mlv1";
+
+// All monetary amounts in this API are decimal strings in RUB. Dates are
+// YYYY-MM-DD. The backend owns the calculation and sends immutable facts.
+service MLService {
+  rpc EstimateMissingMetric(EstimateMissingMetricRequest) returns (EstimateMissingMetricResponse);
+  rpc AnalyzeScenario(AnalyzeScenarioRequest) returns (AnalyzeScenarioResponse);
+  rpc ExplainCalculation(ExplainCalculationRequest) returns (ExplainCalculationResponse);
+  rpc GetReadiness(ReadinessRequest) returns (ReadinessResponse);
+}
+
+enum MetricKind {
+  METRIC_KIND_UNSPECIFIED = 0;
+  METRIC_KIND_DURATION_MOD = 1;
+  METRIC_KIND_CONVEXITY = 2;
+}
+
+enum MetricSource {
+  METRIC_SOURCE_UNSPECIFIED = 0;
+  METRIC_SOURCE_OBSERVED = 1;
+  METRIC_SOURCE_CATBOOST = 2;
+}
+
+message BondFeatures {
+  optional double years_to_maturity = 1;
+  optional double years_to_yield_date = 2;
+  string coupon_type_asof = 3;
+  optional double coupon_freq_asof = 4;
+  optional double coupon_period_days_asof = 5;
+  optional double coupon_percent = 6;
+  optional double coupon_value = 7;
+  string currency_asof = 8;
+  optional double face_value = 9;
+  optional double ytm = 10; // Percent, e.g. 12.5 means 12.5%.
+  optional bool has_buyback = 11;
+  optional bool is_government = 12;
+  bool settlement_calendar_exact = 13;
+  optional bool is_structured = 14;
+}
+
+message EstimateMissingMetricRequest {
+  string request_id = 1;
+  string instrument_id = 2;
+  string as_of_date = 3;
+  MetricKind metric = 4;
+  BondFeatures features = 5;
+  optional double observed_value = 6; // Returned unchanged when present.
+}
+
+message EstimateMissingMetricResponse {
+  string request_id = 1;
+  string instrument_id = 2;
+  string as_of_date = 3;
+  MetricKind metric = 4;
+  double value = 5;
+  optional double low = 6;
+  optional double high = 7;
+  MetricSource source = 8;
+  string model_version = 9;
+  bool review_required = 10;
+  repeated string limitations = 11;
+}
+
+message ScenarioPosition {
+  string position_id = 1;
+  optional double duration_mod = 2;
+  optional double ytm = 3; // Percent.
+  optional double face_value = 4; // Native currency.
+}
+
+message AnalyzeScenarioRequest {
+  string request_id = 1;
+  string calculation_id = 2;
+  string data_date = 3;
+  double shift_bp = 4;
+  repeated ScenarioPosition positions = 5;
+}
+
+message ScenarioPositionAnalysis {
+  string position_id = 1;
+  double model_value = 2;
+}
+
+message AnalyzeScenarioResponse {
+  string request_id = 1;
+  string calculation_id = 2;
+  string model_version = 3;
+  string target_kind = 4;
+  string target_unit = 5;
+  repeated ScenarioPositionAnalysis positions = 6;
+  repeated string limitations = 7;
+  bool experimental = 8;
+}
+
+enum CalculationKind {
+  CALCULATION_KIND_UNSPECIFIED = 0;
+  CALCULATION_KIND_DV01 = 1;
+  CALCULATION_KIND_STRESS_CHANGE = 2;
+}
+
+message ExplanationPosition {
+  string position_id = 1;
+  string side = 2; // buy or sell.
+  string value_rub = 3;
+  string change_rub = 4;
+  bool estimated = 5;
+}
+
+message ExplainCalculationRequest {
+  string request_id = 1;
+  string calculation_id = 2;
+  CalculationKind calculation_kind = 3;
+  string currency = 4;
+  string total_rub = 5;
+  string data_as_of = 6;
+  bool incomplete = 7;
+  bool estimated = 8;
+  repeated ExplanationPosition positions = 9;
+}
+
+message ExplainCalculationResponse {
+  string request_id = 1;
+  string calculation_id = 2;
+  string text = 3;
+  repeated string fact_ids = 4;
+  string model_version = 5;
+  bool verified = 6;
+}
+
+message ReadinessRequest {}
+
+message ReadinessResponse {
+  bool metric_ready = 1;
+  bool scenario_ready = 2;
+  bool explanation_ready = 3;
+  repeated string reasons = 4;
+}
