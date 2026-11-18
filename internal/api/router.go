@@ -24,6 +24,7 @@ func NewRouter(h *Handler) http.Handler {
 		r.Post("/risk-calculations", h.Calculation)
 		r.Get("/risk-calculations/{id}", h.GetCalculation)
 		r.Post("/risk-calculations/{id}/stress-scenarios", h.StressScenario)
+		r.Post("/risk-calculations/{id}/explanations", h.ExplainCalculation)
 	})
 
 	return r

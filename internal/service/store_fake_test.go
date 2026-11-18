@@ -10,6 +10,7 @@ import (
 )
 
 type fakeStore struct {
+	SaveExplanationFunc      func(context.Context, models.LLMExplanation) error
 	GetLatestMarketDateFunc  func(context.Context, models.Source, time.Time) (time.Time, error)
 	GetInstrumentFunc        func(ctx context.Context, isin string) (models.Instrument, error)
 	GetInstrumentByIDFunc    func(ctx context.Context, id uuid.UUID) (models.Instrument, error)
@@ -23,6 +24,13 @@ type fakeStore struct {
 	CreateBasketItemFunc     func(ctx context.Context, isin string, side models.DealSide, quantity int64, basketID uuid.UUID) (models.BasketItem, error)
 	GetBasketItemByIDFunc    func(ctx context.Context, id uuid.UUID) (models.BasketItem, error)
 	UpdateBasketItemFunc     func(ctx context.Context, id uuid.UUID, params map[string]any) error
+}
+
+func (s *fakeStore) SaveExplanation(ctx context.Context, value models.LLMExplanation) error {
+	if s.SaveExplanationFunc == nil {
+		panic("unexpected SaveExplanation")
+	}
+	return s.SaveExplanationFunc(ctx, value)
 }
 
 var _ Storage = (*fakeStore)(nil)

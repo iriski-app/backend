@@ -17,4 +17,5 @@ type LLMExplanation struct {
 	ValidationOK     bool           `gorm:"type:boolean;not null"`
 	ValidationErrors datatypes.JSON `gorm:"type:jsonb"`
 	CreatedAt        time.Time      `gorm:"type:timestamptz;not null"`
+	FactIDs          datatypes.JSON `gorm:"type:jsonb"`
 }
