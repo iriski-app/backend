@@ -10,6 +10,8 @@ import (
 	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/risk"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type StressPosition struct {
@@ -115,6 +117,16 @@ func (s *Service) AnalyzeStress(ctx context.Context, sessionID uuid.UUID, result
 	}
 	response, err := client.AnalyzeScenario(ctx, req)
 	if err != nil {
+		switch status.Code(err) {
+		case codes.DeadlineExceeded:
+			result.MLAnalysis.Reason = "timeout"
+		case codes.FailedPrecondition:
+			result.MLAnalysis.Reason = "model_not_ready"
+		case codes.OutOfRange:
+			result.MLAnalysis.Reason = "outside_model_range"
+		case codes.InvalidArgument:
+			result.MLAnalysis.Reason = "invalid_features"
+		}
 		return
 	}
 	if response == nil || response.RequestId != req.RequestId || response.CalculationId != req.CalculationId || response.ModelVersion == "" || response.TargetKind != "formula_proxy_reference_position" || response.TargetUnit != "RUB_FOR_10_FACE_VALUES" || len(response.Positions) != len(ids) {

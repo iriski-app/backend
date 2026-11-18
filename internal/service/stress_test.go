@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestCalculateStressSnapshot(t *testing.T) {
@@ -41,12 +43,18 @@ func TestCalculateStressSnapshot(t *testing.T) {
 	}
 }
 
-type scenarioTestClient struct{ invalid bool }
+type scenarioTestClient struct {
+	invalid bool
+	err     error
+}
 
 func (c *scenarioTestClient) EstimateMissingMetric(context.Context, *mlv1.EstimateMissingMetricRequest) (*mlv1.EstimateMissingMetricResponse, error) {
 	return nil, nil
 }
 func (c *scenarioTestClient) AnalyzeScenario(_ context.Context, r *mlv1.AnalyzeScenarioRequest) (*mlv1.AnalyzeScenarioResponse, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
 	id := r.Positions[0].PositionId
 	if c.invalid {
 		id = uuid.NewString()
@@ -72,6 +80,11 @@ func TestAnalyzeStressFallbackAndSuccess(t *testing.T) {
 	client.invalid = true
 	svc.AnalyzeStress(context.Background(), uuid.New(), &result)
 	if result.MLAnalysis.Status != "unavailable" || result.TotalChangeRub != -1 {
+		t.Fatalf("result %+v", result)
+	}
+	client.err = status.Error(codes.FailedPrecondition, "not ready")
+	svc.AnalyzeStress(context.Background(), uuid.New(), &result)
+	if result.MLAnalysis.Reason != "model_not_ready" || result.TotalChangeRub != -1 {
 		t.Fatalf("result %+v", result)
 	}
 }
