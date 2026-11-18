@@ -147,6 +147,10 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 				nil,
 			)
 
+		case errors.Is(err, service.ErrMLUnavailable):
+			slog.ErrorContext(ctx, "ML estimation failed", "error", err)
+			writeError(w, http.StatusServiceUnavailable, "ml_unavailable", "Не удалось получить оценку ML", nil)
+
 		case errors.Is(err, service.ErrPlaceHolder):
 			writeError(
 				w,
@@ -204,6 +208,12 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 			DV01:         result.DV01,
 			Source:       result.DataSource,
 			MarketDate:   result.MarketDate,
+		}
+		if result.DurationEstimate != nil {
+			response.Positions[i].DurationEstimate = json.RawMessage(*result.DurationEstimate)
+		}
+		if result.ConvexityEstimate != nil {
+			response.Positions[i].ConvexityEstimate = json.RawMessage(*result.ConvexityEstimate)
 		}
 	}
 

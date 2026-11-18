@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/risk"
 	"github.com/iriski-app/backend/internal/storage/models"
 	"gorm.io/gorm"
@@ -130,17 +131,26 @@ func (s *Service) CalculatePositions(
 		if err != nil {
 			return models.CalcRun{}, []models.CalcResult{}, err
 		}
-		if curMarketData.DurationMod == nil {
-			return models.CalcRun{}, []models.CalcResult{}, ErrPlaceHolder // TODO: Отправка в ML
-		}
 		if curMarketData.AccruedInt == nil {
 			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: accrued interest", ErrMissingParameter)
 		}
 		if curMarketData.PriceClean == nil {
 			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: price", ErrMissingParameter)
 		}
+		var durationEstimate, convexityEstimate *string
+		if curMarketData.DurationMod == nil {
+			value, metadata, err := s.estimateMetric(ctx, curMarketData, mlv1.MetricKind_METRIC_KIND_DURATION_MOD)
+			if err != nil {
+				return models.CalcRun{}, nil, err
+			}
+			curMarketData.DurationMod, durationEstimate = &value, &metadata
+		}
 		if curMarketData.Convexity == nil {
-			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: convexity", ErrMissingParameter)
+			value, metadata, err := s.estimateMetric(ctx, curMarketData, mlv1.MetricKind_METRIC_KIND_CONVEXITY)
+			if err != nil {
+				return models.CalcRun{}, nil, err
+			}
+			curMarketData.Convexity, convexityEstimate = &value, &metadata
 		}
 		marketValue := float64(position.Quantity) * (*curMarketData.PriceClean + *curMarketData.AccruedInt)
 		riskPositions[i] = risk.Position{
@@ -150,19 +160,21 @@ func (s *Service) CalculatePositions(
 			Convexity:   *curMarketData.Convexity,
 		}
 		calcResults[i] = models.CalcResult{
-			ID:           uuid.New(),
-			CalcRunID:    calcRunID,
-			InstrumentID: curInstrument.ID,
-			Side:         position.Side,
-			Quantity:     position.Quantity,
-			Currency:     "RUB",
-			MarketDate:   &curMarketData.TradeDate,
-			PriceClean:   curMarketData.PriceClean,
-			AccruedInt:   curMarketData.AccruedInt,
-			FairValue:    &marketValue,
-			DurationMod:  curMarketData.DurationMod,
-			Convexity:    curMarketData.Convexity,
-			DataSource:   models.SourceMoex,
+			ID:                uuid.New(),
+			CalcRunID:         calcRunID,
+			InstrumentID:      curInstrument.ID,
+			Side:              position.Side,
+			Quantity:          position.Quantity,
+			Currency:          "RUB",
+			MarketDate:        &curMarketData.TradeDate,
+			PriceClean:        curMarketData.PriceClean,
+			AccruedInt:        curMarketData.AccruedInt,
+			FairValue:         &marketValue,
+			DurationMod:       curMarketData.DurationMod,
+			Convexity:         curMarketData.Convexity,
+			DataSource:        models.SourceMoex,
+			DurationEstimate:  durationEstimate,
+			ConvexityEstimate: convexityEstimate,
 		}
 	}
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,13 +53,15 @@ type CalculationResponse struct {
 }
 
 type CalculationPositionResponse struct {
-	ID           uuid.UUID       `json:"id"`
-	InstrumentID uuid.UUID       `json:"instrument_id"`
-	Side         models.DealSide `json:"side"`
-	Quantity     int64           `json:"quantity"`
-	MarketValue  *float64        `json:"market_value"`
-	DurationMod  *float64        `json:"duration_mod"`
-	DV01         *float64        `json:"dv01"`
-	Source       models.Source   `json:"source"`
-	MarketDate   *time.Time      `json:"market_date"`
+	ID                uuid.UUID       `json:"id"`
+	InstrumentID      uuid.UUID       `json:"instrument_id"`
+	Side              models.DealSide `json:"side"`
+	Quantity          int64           `json:"quantity"`
+	MarketValue       *float64        `json:"market_value"`
+	DurationMod       *float64        `json:"duration_mod"`
+	DV01              *float64        `json:"dv01"`
+	Source            models.Source   `json:"source"`
+	MarketDate        *time.Time      `json:"market_date"`
+	DurationEstimate  json.RawMessage `json:"duration_estimate,omitempty"`
+	ConvexityEstimate json.RawMessage `json:"convexity_estimate,omitempty"`
 }
