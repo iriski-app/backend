@@ -23,7 +23,8 @@ func TestCalculateStressSnapshot(t *testing.T) {
 	svc := NewService(store)
 	for _, shift := range []float64{0, 1, 100, -100} {
 		result, err := svc.CalculateStress(context.Background(), uuid.New(), uuid.New(), shift)
-		want := value * (-duration*shift/10000 + 0.5*convexity*math.Pow(shift/10000, 2))
+		fraction := shift / 10000
+		want := value * (-duration*fraction + 0.5*convexity*fraction*fraction)
 		if err != nil || math.Abs(result.TotalChangeRub-want) > 1e-10 {
 			t.Fatalf("shift %v result %+v error %v", shift, result, err)
 		}
