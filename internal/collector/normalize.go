@@ -104,13 +104,16 @@ func NormalizeMarketData(
 		return models.MarketData{}, ErrNoTrades
 	}
 	numTrades := *data.NumTrades
+	currency := "RUB"
 	marketData := models.MarketData{
-		InstrumentID: instrumentID,
-		TradeDate:    tradeDate,
-		Source:       models.SourceMoex,
-		PriceType:    "trade",
-		NumTrades:    &numTrades,
-		LoadedAt:     loadedAt.UTC(),
+		InstrumentID:       instrumentID,
+		TradeDate:          tradeDate,
+		Source:             models.SourceMoex,
+		PriceType:          "trade",
+		PriceCurrency:      &currency,
+		AccruedIntCurrency: &currency,
+		NumTrades:          &numTrades,
+		LoadedAt:           loadedAt.UTC(),
 	}
 	if data.Close != nil && data.FaceValue != nil && validNumber(*data.Close) && validNumber(*data.FaceValue) && *data.Close > 0 && *data.FaceValue > 0 {
 		priceClean := *data.Close / 100 * *data.FaceValue

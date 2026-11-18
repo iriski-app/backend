@@ -17,7 +17,7 @@ func (s *Store) UpsertMarketData(ctx context.Context, marketData models.MarketDa
 			{Name: "source"},
 		},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"price_type", "price_clean", "accrued_int", "duration_mod",
+			"price_type", "price_clean", "price_currency", "accrued_int", "accrued_int_currency", "duration_mod",
 			"convexity", "ytm", "num_trades", "loaded_at",
 		}),
 	}).Create(&marketData).Error

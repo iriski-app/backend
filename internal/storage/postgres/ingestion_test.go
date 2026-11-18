@@ -113,6 +113,9 @@ func TestUpsertMarketDataKeysAndMissingValues(t *testing.T) {
 	data.Convexity = nil
 	data.YTM = nil
 	data.NumTrades = &zeroTrades
+	priceCurrency, accruedCurrency := "USD", "RUB"
+	data.PriceCurrency = &priceCurrency
+	data.AccruedIntCurrency = &accruedCurrency
 	data.LoadedAt = data.LoadedAt.Add(time.Hour)
 	if err := store.UpsertMarketData(ctx, data); err != nil {
 		t.Fatal(err)
@@ -126,6 +129,9 @@ func TestUpsertMarketDataKeysAndMissingValues(t *testing.T) {
 	}
 	if stored.AccruedInt == nil || *stored.AccruedInt != 0 || stored.NumTrades == nil || *stored.NumTrades != 0 {
 		t.Fatalf("zero values were not updated: %+v", stored)
+	}
+	if stored.PriceCurrency == nil || *stored.PriceCurrency != priceCurrency || stored.AccruedIntCurrency == nil || *stored.AccruedIntCurrency != accruedCurrency {
+		t.Fatalf("currencies were not updated: %+v", stored)
 	}
 	if !stored.LoadedAt.Equal(data.LoadedAt) {
 		t.Fatalf("load time %v, want %v", stored.LoadedAt, data.LoadedAt)
