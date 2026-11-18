@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,6 +57,20 @@ func TestExplainCalculationHTTP(t *testing.T) {
 		router.ServeHTTP(res, req)
 		if res.Code != tc.status {
 			t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+		}
+		if res.Code == http.StatusCreated {
+			var body struct {
+				CalculationID uuid.UUID `json:"calculation_id"`
+				Text          string    `json:"text"`
+				ValidationOK  bool      `json:"validation_ok"`
+				Sources       []string  `json:"sources"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.CalculationID != id || body.Text != "DV01" || !body.ValidationOK || len(body.Sources) != 1 || body.Sources[0] != "total_rub" {
+				t.Fatalf("unexpected response: %+v", body)
+			}
 		}
 	}
 	if store.saved != 1 {

@@ -52,8 +52,8 @@ func (h *Handler) ExplainCalculation(w http.ResponseWriter, r *http.Request) {
 		ID                          uuid.UUID       `json:"id"`
 		CalculationID               uuid.UUID       `json:"calculation_id"`
 		Text                        string          `json:"text"`
-		Verified                    bool            `json:"verified"`
-		FactIDs                     json.RawMessage `json:"fact_ids"`
+		Verified                    bool            `json:"validation_ok"`
+		FactIDs                     json.RawMessage `json:"sources"`
 		ModelVersion                string          `json:"model_version"`
 		CreatedAt                   string          `json:"created_at"`
 		CalculationDetailsAvailable bool            `json:"calculation_details_available"`
