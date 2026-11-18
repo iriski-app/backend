@@ -9,10 +9,12 @@ import (
 )
 
 type fakeStore struct {
+	GetLatestMarketDateFunc  func(context.Context, models.Source, time.Time) (time.Time, error)
 	GetInstrumentFunc        func(ctx context.Context, isin string) (models.Instrument, error)
 	GetInstrumentByIDFunc    func(ctx context.Context, id uuid.UUID) (models.Instrument, error)
 	GetMarketDataFunc        func(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
 	SaveCalculationFunc      func(ctx context.Context, calcRun models.CalcRun, calcResults []models.CalcResult) error
+	GetCalculationFunc       func(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error)
 	CreateBasketFunc         func(ctx context.Context, sessionID uuid.UUID) (models.Basket, error)
 	GetBasketBySessionIDFunc func(ctx context.Context, sessionID uuid.UUID) (models.Basket, error)
 	GetBasketItemsFunc       func(ctx context.Context, basketID uuid.UUID) ([]models.BasketItem, error)
@@ -56,6 +58,13 @@ func (s *fakeStore) SaveCalculation(
 		panic("unexpected call to fakeStore.SaveCalculation")
 	}
 	return s.SaveCalculationFunc(ctx, calcRun, calcResults)
+}
+
+func (s *fakeStore) GetCalculation(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error) {
+	if s.GetCalculationFunc == nil {
+		panic("unexpected call to fakeStore.GetCalculation")
+	}
+	return s.GetCalculationFunc(ctx, sessionID, calcID)
 }
 
 func (s *fakeStore) CreateBasket(ctx context.Context, sessionID uuid.UUID) (models.Basket, error) {
@@ -103,4 +112,11 @@ func (s *fakeStore) UpdateBasketItem(ctx context.Context, id uuid.UUID, params m
 		panic("unexpected call to fakeStore.UpdateBasketItem")
 	}
 	return s.UpdateBasketItemFunc(ctx, id, params)
+}
+
+func (s *fakeStore) GetLatestMarketDate(ctx context.Context, source models.Source, cutoff time.Time) (time.Time, error) {
+	if s.GetLatestMarketDateFunc != nil {
+		return s.GetLatestMarketDateFunc(ctx, source, cutoff)
+	}
+	return cutoff, nil
 }
