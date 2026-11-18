@@ -16,6 +16,14 @@ type testServer struct {
 	mlv1.UnimplementedMLServiceServer
 }
 
+func (s *testServer) AnalyzeScenario(_ context.Context, req *mlv1.AnalyzeScenarioRequest) (*mlv1.AnalyzeScenarioResponse, error) {
+	return &mlv1.AnalyzeScenarioResponse{RequestId: req.RequestId, CalculationId: req.CalculationId}, nil
+}
+
+func (s *testServer) ExplainCalculation(_ context.Context, req *mlv1.ExplainCalculationRequest) (*mlv1.ExplainCalculationResponse, error) {
+	return &mlv1.ExplainCalculationResponse{RequestId: req.RequestId, CalculationId: req.CalculationId, Text: req.TotalRub}, nil
+}
+
 func (s *testServer) GetReadiness(context.Context, *mlv1.ReadinessRequest) (*mlv1.ReadinessResponse, error) {
 	return &mlv1.ReadinessResponse{MetricReady: true}, nil
 }
@@ -56,6 +64,14 @@ func TestClientGRPC(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
+	scenario, err := client.AnalyzeScenario(context.Background(), &mlv1.AnalyzeScenarioRequest{RequestId: "r", CalculationId: "c", ShiftBp: 100})
+	if err != nil || scenario.CalculationId != "c" {
+		t.Fatalf("scenario=%v err=%v", scenario, err)
+	}
+	explanation, err := client.ExplainCalculation(context.Background(), &mlv1.ExplainCalculationRequest{RequestId: "r", CalculationId: "c", TotalRub: "1.25"})
+	if err != nil || explanation.Text != "1.25" {
+		t.Fatalf("explanation=%v err=%v", explanation, err)
+	}
 	_, err = client.EstimateMissingMetric(ctx, &mlv1.EstimateMissingMetricRequest{RequestId: "timeout"})
 	if status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("expected deadline exceeded, got %v", err)

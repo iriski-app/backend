@@ -44,3 +44,15 @@ func (c *Client) EstimateMissingMetric(ctx context.Context, req *mlv1.EstimateMi
 	defer cancel()
 	return c.service.EstimateMissingMetric(ctx, req)
 }
+
+func (c *Client) AnalyzeScenario(ctx context.Context, req *mlv1.AnalyzeScenarioRequest) (*mlv1.AnalyzeScenarioResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return c.service.AnalyzeScenario(ctx, req)
+}
+
+func (c *Client) ExplainCalculation(ctx context.Context, req *mlv1.ExplainCalculationRequest) (*mlv1.ExplainCalculationResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	return c.service.ExplainCalculation(ctx, req)
+}
