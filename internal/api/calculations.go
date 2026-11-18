@@ -147,6 +147,9 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 				nil,
 			)
 
+		case errors.Is(err, service.ErrMissingFXRate):
+			writeError(w, http.StatusUnprocessableEntity, "missing_fx_rate", "Нет актуального курса валюты для расчёта", nil)
+
 		case errors.Is(err, service.ErrPlaceHolder):
 			writeError(
 				w,
@@ -195,15 +198,22 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 	}
 	for i, result := range calcResults {
 		response.Positions[i] = CalculationPositionResponse{
-			ID:           result.ID,
-			InstrumentID: result.InstrumentID,
-			Side:         result.Side,
-			Quantity:     result.Quantity,
-			MarketValue:  result.FairValue,
-			DurationMod:  result.DurationMod,
-			DV01:         result.DV01,
-			Source:       result.DataSource,
-			MarketDate:   result.MarketDate,
+			ID:                 result.ID,
+			InstrumentID:       result.InstrumentID,
+			Side:               result.Side,
+			Quantity:           result.Quantity,
+			MarketValue:        result.FairValue,
+			Currency:           result.Currency,
+			PriceCurrency:      result.PriceCurrency,
+			AccruedIntCurrency: result.AccruedIntCurrency,
+			PriceFXRate:        result.PriceFXRate,
+			AccruedIntFXRate:   result.AccruedIntFXRate,
+			PriceFXDate:        result.PriceFXDate,
+			AccruedIntFXDate:   result.AccruedIntFXDate,
+			DurationMod:        result.DurationMod,
+			DV01:               result.DV01,
+			Source:             result.DataSource,
+			MarketDate:         result.MarketDate,
 		}
 	}
 

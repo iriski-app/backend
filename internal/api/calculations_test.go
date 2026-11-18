@@ -32,6 +32,11 @@ type calculationTestStore struct {
 	savedResults []models.CalcResult
 	getErr       error
 	getCalls     int
+	fxErr        error
+}
+
+func (s *calculationTestStore) GetFXRate(context.Context, string, string, time.Time) (models.FXRate, error) {
+	return models.FXRate{}, s.fxErr
 }
 
 func (s *calculationTestStore) GetInstrument(_ context.Context, isin string) (models.Instrument, error) {
@@ -103,13 +108,14 @@ func newCalculationTestStore() (*calculationTestStore, []Position) {
 		price := 1000.0
 		store.instruments[position.ISIN] = instrument
 		store.marketData[instrument.ID] = models.MarketData{
-			InstrumentID: instrument.ID,
-			Source:       models.SourceMoex,
-			TradeDate:    time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
-			PriceClean:   &price,
-			AccruedInt:   &accrued[i],
-			DurationMod:  &durations[i],
-			Convexity:    &convexities[i],
+			InstrumentID:  instrument.ID,
+			Source:        models.SourceMoex,
+			TradeDate:     time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
+			PriceClean:    &price,
+			PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
+			AccruedInt:  &accrued[i],
+			DurationMod: &durations[i],
+			Convexity:   &convexities[i],
 		}
 	}
 	return store, positions
@@ -269,6 +275,25 @@ func TestCalculationInvalidSession(t *testing.T) {
 			response := serveCalculation(t, store, `{"positions":[]}`, &session)
 			assertCalculationHTTPError(t, response, http.StatusBadRequest, "session_error")
 		})
+	}
+}
+
+func TestCalculationMissingFXRate(t *testing.T) {
+	store, positions := newCalculationTestStore()
+	id := store.instruments[positions[0].ISIN].ID
+	data := store.marketData[id]
+	data.PriceCurrency = new("USD")
+	store.marketData[id] = data
+	store.fxErr = gorm.ErrRecordNotFound
+	body, err := json.Marshal(CalculationRequest{Positions: positions[:1]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := uuid.NewString()
+	response := serveCalculation(t, store, string(body), &session)
+	assertCalculationHTTPError(t, response, http.StatusUnprocessableEntity, "missing_fx_rate")
+	if store.saveCalls != 0 {
+		t.Fatal("calculation with missing rate was saved")
 	}
 }
 

@@ -13,6 +13,7 @@ type Storage interface {
 	GetInstrumentByID(ctx context.Context, id uuid.UUID) (models.Instrument, error)
 	GetLatestMarketDate(ctx context.Context, source models.Source, cutoff time.Time) (time.Time, error)
 	GetMarketData(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
+	GetFXRate(ctx context.Context, currency, source string, asOf time.Time) (models.FXRate, error)
 	SaveCalculation(ctx context.Context, calcRun models.CalcRun, calcResults []models.CalcResult) error
 	GetCalculation(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error)
 

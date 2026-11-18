@@ -91,6 +91,7 @@ func TestGetInstrument(t *testing.T) {
 				marketData: models.MarketData{
 					InstrumentID: instrument.ID, TradeDate: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
 					PriceType: "trade", PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration,
+					PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 					Convexity: &convexity, YTM: &ytm, LoadedAt: loadedAt,
 				},
 			}

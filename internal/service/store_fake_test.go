@@ -13,6 +13,7 @@ type fakeStore struct {
 	GetInstrumentFunc        func(ctx context.Context, isin string) (models.Instrument, error)
 	GetInstrumentByIDFunc    func(ctx context.Context, id uuid.UUID) (models.Instrument, error)
 	GetMarketDataFunc        func(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
+	GetFXRateFunc            func(context.Context, string, string, time.Time) (models.FXRate, error)
 	SaveCalculationFunc      func(ctx context.Context, calcRun models.CalcRun, calcResults []models.CalcResult) error
 	GetCalculationFunc       func(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error)
 	CreateBasketFunc         func(ctx context.Context, sessionID uuid.UUID) (models.Basket, error)
@@ -24,6 +25,13 @@ type fakeStore struct {
 }
 
 var _ Storage = (*fakeStore)(nil)
+
+func (s *fakeStore) GetFXRate(ctx context.Context, currency, source string, date time.Time) (models.FXRate, error) {
+	if s.GetFXRateFunc == nil {
+		panic("unexpected call to fakeStore.GetFXRate")
+	}
+	return s.GetFXRateFunc(ctx, currency, source, date)
+}
 
 func (s *fakeStore) GetInstrument(ctx context.Context, isin string) (models.Instrument, error) {
 	if s.GetInstrumentFunc == nil {

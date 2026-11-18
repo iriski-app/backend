@@ -30,11 +30,11 @@ func TestCalculateSuccess(t *testing.T) {
 			marketData := map[uuid.UUID]models.MarketData{
 				instrumentIDs[0]: {
 					InstrumentID: instrumentIDs[0], TradeDate: tradeDate, Source: models.SourceMoex,
-					PriceClean: &price, AccruedInt: &accruedBuy, DurationMod: &durationBuy, Convexity: &convexity,
+					PriceClean: &price, AccruedInt: &accruedBuy, DurationMod: &durationBuy, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 				},
 				instrumentIDs[1]: {
 					InstrumentID: instrumentIDs[1], TradeDate: tradeDate, Source: models.SourceMoex,
-					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell, Convexity: &zeroConvexity,
+					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell, Convexity: &zeroConvexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 				},
 			}
 			var savedRun models.CalcRun
@@ -244,7 +244,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 					if stage == "market data" {
 						return models.MarketData{}, wantErr
 					}
-					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
+					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}, nil
 				},
 				SaveCalculationFunc: func(_ context.Context, run models.CalcRun, results []models.CalcResult) error {
 					saveCalls++
@@ -277,7 +277,7 @@ func TestCalculatePositionsInvalidSecondPosition(t *testing.T) {
 		},
 		GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
 			marketCalls++
-			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
+			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}, nil
 		},
 	}
 	positions := []PositionInput{

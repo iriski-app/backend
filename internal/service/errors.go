@@ -12,4 +12,5 @@ var (
 	ErrCalculationNotFound = errors.New("calculation not found")
 	ErrPlaceHolder         = errors.New("PLACEHOLDER")
 	ErrMissingParameter    = errors.New("missing required parameter")
+	ErrMissingFXRate       = errors.New("exchange rate unavailable")
 )
