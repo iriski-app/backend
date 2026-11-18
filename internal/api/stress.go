@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/http"
 
@@ -30,8 +31,13 @@ func (h *Handler) StressScenario(w http.ResponseWriter, r *http.Request) {
 		ShiftBP   *float64 `json:"shift_bp"`
 		IncludeML bool     `json:"include_ml_analysis"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.ShiftBP == nil {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&request); err != nil || request.ShiftBP == nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Укажите сдвиг доходности в bp", nil)
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON", nil)
 		return
 	}
 	if math.IsNaN(*request.ShiftBP) || math.IsInf(*request.ShiftBP, 0) || *request.ShiftBP < -200 || *request.ShiftBP > 200 {
