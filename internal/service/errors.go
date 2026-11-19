@@ -1,6 +1,12 @@
 package service
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 var (
 	ErrBasketNotFound      = errors.New("basket not found")
@@ -14,3 +20,18 @@ var (
 	ErrMissingParameter    = errors.New("missing required parameter")
 	ErrMissingFXRate       = errors.New("exchange rate unavailable")
 )
+
+type PositionDataError struct {
+	InstrumentID uuid.UUID
+	ISIN         string
+	Field        string
+	Currency     string
+	AsOfDate     time.Time
+	Cause        error
+}
+
+func (e *PositionDataError) Error() string {
+	return fmt.Sprintf("instrument %s (%s), field %s, currency %s, date %s: %v", e.InstrumentID, e.ISIN, e.Field, e.Currency, e.AsOfDate.Format("2006-01-02"), e.Cause)
+}
+
+func (e *PositionDataError) Unwrap() error { return e.Cause }

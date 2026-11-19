@@ -51,6 +51,53 @@ func TestCalculateWithDifferentCurrencies(t *testing.T) {
 	if results[0].PriceFXDate == nil || !results[0].PriceFXDate.Equal(fxDate) || *results[0].PriceCurrency != "USD" {
 		t.Fatal("FX snapshot missing")
 	}
+	if results[0].PriceFXSource == nil || *results[0].PriceFXSource != "cbr" || results[0].AccruedIntFXSource == nil || *results[0].AccruedIntFXSource != "cbr" {
+		t.Fatalf("missing FX sources: %+v", results[0])
+	}
+}
+
+func TestCalculationFXErrorContext(t *testing.T) {
+	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	price, accrued, duration, convexity := 100.0, 10.0, 2.0, 0.0
+	ids := []uuid.UUID{uuid.New(), uuid.New()}
+	for _, field := range []string{"price_clean", "accrued_int"} {
+		t.Run(field, func(t *testing.T) {
+			lookups := 0
+			store := &fakeStore{
+				GetLatestMarketDateFunc: func(context.Context, models.Source, time.Time) (time.Time, error) { return date, nil },
+				GetInstrumentByIDFunc: func(_ context.Context, id uuid.UUID) (models.Instrument, error) {
+					return models.Instrument{ID: id, ISIN: "RU000A0JX0J2"}, nil
+				},
+				GetMarketDataFunc: func(_ context.Context, id uuid.UUID, _ models.Source, day time.Time) (models.MarketData, error) {
+					if !day.Equal(date) {
+						t.Fatalf("market date %v", day)
+					}
+					data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}
+					if id == ids[1] {
+						if field == "price_clean" {
+							data.PriceCurrency = new("USD")
+						} else {
+							data.AccruedIntCurrency = new("USD")
+						}
+					}
+					return data, nil
+				},
+				GetFXRateFunc: func(_ context.Context, currency, source string, day time.Time) (models.FXRate, error) {
+					lookups++
+					if currency != "USD" || !day.Equal(date) {
+						t.Fatalf("FX %s %v", currency, day)
+					}
+					return models.FXRate{}, gorm.ErrRecordNotFound
+				},
+			}
+			positions := []PositionInput{{InstrumentID: ids[0], Side: models.DealSideBuy, Quantity: 1}, {InstrumentID: ids[1], Side: models.DealSideBuy, Quantity: 1}}
+			_, _, err := NewService(store).CalculatePositions(context.Background(), uuid.New(), positions)
+			var detail *PositionDataError
+			if !errors.Is(err, ErrMissingFXRate) || !errors.Is(err, gorm.ErrRecordNotFound) || !errors.As(err, &detail) || detail.InstrumentID != ids[1] || detail.Field != field || detail.Currency != "USD" || !detail.AsOfDate.Equal(date) || lookups != 1 {
+				t.Fatalf("error=%v detail=%+v lookups=%d", err, detail, lookups)
+			}
+		})
+	}
 }
 
 func TestConversionRateUnavailable(t *testing.T) {

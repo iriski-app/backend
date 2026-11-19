@@ -274,13 +274,15 @@ func TestLargeBondPriceMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := models.CalcResult{
-		ID:           uuid.New(),
-		CalcRunID:    run.ID,
-		InstrumentID: instrument.ID,
-		Side:         models.DealSideBuy,
-		Quantity:     1,
-		Currency:     "RUB",
-		PriceClean:   data.PriceClean,
+		ID:                 uuid.New(),
+		CalcRunID:          run.ID,
+		InstrumentID:       instrument.ID,
+		Side:               models.DealSideBuy,
+		Quantity:           1,
+		Currency:           "RUB",
+		PriceClean:         data.PriceClean,
+		PriceFXSource:      new("cbr"),
+		AccruedIntFXSource: new("cbr"),
 	}
 	if err := store.db.Create(&snapshot).Error; err != nil {
 		t.Fatal(err)
@@ -298,6 +300,9 @@ func TestLargeBondPriceMigration(t *testing.T) {
 	}
 	if oldSnapshot.PriceClean == nil || *oldSnapshot.PriceClean != 1000 {
 		t.Fatalf("migration changed old snapshot: %+v", oldSnapshot)
+	}
+	if oldSnapshot.PriceFXSource == nil || *oldSnapshot.PriceFXSource != "cbr" || oldSnapshot.AccruedIntFXSource == nil || *oldSnapshot.AccruedIntFXSource != "cbr" {
+		t.Fatalf("FX sources missing: %+v", oldSnapshot)
 	}
 	price := 9200000.0
 	data.PriceClean = &price

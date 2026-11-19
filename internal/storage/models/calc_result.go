@@ -29,6 +29,8 @@ type CalcResult struct {
 	AccruedIntFXRate   *float64   `gorm:"type:numeric(24,12)"`
 	PriceFXDate        *time.Time `gorm:"type:date"`
 	AccruedIntFXDate   *time.Time `gorm:"type:date"`
+	PriceFXSource      *string    `gorm:"type:text"`
+	AccruedIntFXSource *string    `gorm:"type:text"`
 	DV01Low            *float64   `gorm:"type:numeric(20,6)"`
 	DV01High           *float64   `gorm:"type:numeric(20,6)"`
 	DataSource         Source     `gorm:"type:text"`

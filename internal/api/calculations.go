@@ -128,6 +128,15 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 		positions,
 	)
 	if err != nil {
+		var positionError *service.PositionDataError
+		var details any
+		if errors.As(err, &positionError) {
+			positionDetails := map[string]any{"instrument_id": positionError.InstrumentID, "isin": positionError.ISIN, "field": positionError.Field, "as_of_date": positionError.AsOfDate.Format("2006-01-02")}
+			if positionError.Currency != "" {
+				positionDetails["currency"] = positionError.Currency
+			}
+			details = positionDetails
+		}
 		switch {
 		case errors.Is(err, service.ErrInvalidParameter):
 			writeError(
@@ -138,26 +147,20 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 				nil,
 			)
 
+		case errors.Is(err, service.ErrPlaceHolder):
+			writeError(w, http.StatusUnprocessableEntity, "missing_duration", "Отсутствует дюрация для расчёта", details)
+
 		case errors.Is(err, service.ErrMissingParameter):
 			writeError(
 				w,
 				http.StatusUnprocessableEntity,
 				"missing_parameter",
 				"Недостаточно рыночных данных для расчёта",
-				nil,
+				details,
 			)
 
 		case errors.Is(err, service.ErrMissingFXRate):
-			writeError(w, http.StatusUnprocessableEntity, "missing_fx_rate", "Нет актуального курса валюты для расчёта", nil)
-
-		case errors.Is(err, service.ErrPlaceHolder):
-			writeError(
-				w,
-				http.StatusUnprocessableEntity,
-				"missing_duration",
-				"Отсутствует дюрация для расчёта",
-				nil,
-			)
+			writeError(w, http.StatusUnprocessableEntity, "missing_fx_rate", "Нет актуального курса валюты для расчёта", details)
 
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			writeError(
@@ -210,6 +213,8 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 			AccruedIntFXRate:   result.AccruedIntFXRate,
 			PriceFXDate:        result.PriceFXDate,
 			AccruedIntFXDate:   result.AccruedIntFXDate,
+			PriceFXSource:      result.PriceFXSource,
+			AccruedIntFXSource: result.AccruedIntFXSource,
 			DurationMod:        result.DurationMod,
 			DV01:               result.DV01,
 			Source:             result.DataSource,

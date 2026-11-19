@@ -33,6 +33,7 @@ type calculationTestStore struct {
 	getErr       error
 	getCalls     int
 	fxErr        error
+	fxRate       models.FXRate
 }
 
 func (s *calculationTestStore) GetLatestCommonMarketDate(ctx context.Context, ids []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
@@ -40,7 +41,7 @@ func (s *calculationTestStore) GetLatestCommonMarketDate(ctx context.Context, id
 }
 
 func (s *calculationTestStore) GetFXRate(context.Context, string, string, time.Time) (models.FXRate, error) {
-	return models.FXRate{}, s.fxErr
+	return s.fxRate, s.fxErr
 }
 
 func (s *calculationTestStore) GetInstrument(_ context.Context, isin string) (models.Instrument, error) {
@@ -296,8 +297,73 @@ func TestCalculationMissingFXRate(t *testing.T) {
 	session := uuid.NewString()
 	response := serveCalculation(t, store, string(body), &session)
 	assertCalculationHTTPError(t, response, http.StatusUnprocessableEntity, "missing_fx_rate")
+	var errorBody struct {
+		Details struct {
+			InstrumentID uuid.UUID `json:"instrument_id"`
+			ISIN         string    `json:"isin"`
+			Field        string    `json:"field"`
+			Currency     string    `json:"currency"`
+			AsOfDate     string    `json:"as_of_date"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &errorBody); err != nil {
+		t.Fatal(err)
+	}
+	if errorBody.Details.InstrumentID != id || errorBody.Details.ISIN != positions[0].ISIN || errorBody.Details.Field != "price_clean" || errorBody.Details.Currency != "USD" || errorBody.Details.AsOfDate == "" {
+		t.Fatalf("incorrect details: %+v", errorBody.Details)
+	}
 	if store.saveCalls != 0 {
 		t.Fatal("calculation with missing rate was saved")
+	}
+}
+
+func TestCalculationResponseIncludesFXSources(t *testing.T) {
+	source := "cbr"
+	result := models.CalcResult{PriceFXSource: &source, AccruedIntFXSource: &source}
+	response := newCalculationResponse(models.CalcRun{}, []models.CalcResult{result})
+	data, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"price_fx_source":"cbr"`) || !strings.Contains(string(data), `"accrued_int_fx_source":"cbr"`) {
+		t.Fatalf("response: %s", data)
+	}
+}
+
+func TestCalculationPOSTAndGETIncludeFXSources(t *testing.T) {
+	store, positions := newCalculationTestStore()
+	instrument := store.instruments[positions[0].ISIN]
+	market := store.marketData[instrument.ID]
+	market.PriceCurrency = new("USD")
+	market.AccruedIntCurrency = new("USD")
+	store.marketData[instrument.ID] = market
+	store.fxRate = models.FXRate{Source: "cbr", Value: "90", Nominal: 1, EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	body, err := json.Marshal(CalculationRequest{Positions: positions[:1]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := uuid.NewString()
+	post := serveCalculation(t, store, string(body), &session)
+	if post.Code != http.StatusCreated {
+		t.Fatalf("POST %d: %s", post.Code, post.Body.String())
+	}
+	handler := NewRouter(NewHandler(service.NewService(store)))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/risk-calculations/"+store.savedRun.ID.String(), nil)
+	req.AddCookie(&http.Cookie{Name: "session_id", Value: session})
+	get := httptest.NewRecorder()
+	handler.ServeHTTP(get, req)
+	if get.Code != http.StatusOK {
+		t.Fatalf("GET %d: %s", get.Code, get.Body.String())
+	}
+	var postBody, getBody CalculationResponse
+	if err := json.Unmarshal(post.Body.Bytes(), &postBody); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(get.Body.Bytes(), &getBody); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(postBody, getBody) || postBody.Positions[0].PriceFXSource == nil || *postBody.Positions[0].PriceFXSource != "cbr" || postBody.Positions[0].AccruedIntFXSource == nil || *postBody.Positions[0].AccruedIntFXSource != "cbr" {
+		t.Fatalf("POST=%+v GET=%+v", postBody, getBody)
 	}
 }
 
@@ -350,6 +416,22 @@ func TestCalculationDataErrors(t *testing.T) {
 			session := uuid.NewString()
 			response := serveCalculation(t, store, string(body), &session)
 			assertCalculationHTTPError(t, response, tt.wantStatus, tt.wantCode)
+			if tt.missing != "" {
+				var result struct {
+					Details struct {
+						InstrumentID uuid.UUID `json:"instrument_id"`
+						ISIN         string    `json:"isin"`
+						Field        string    `json:"field"`
+					} `json:"details"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				fields := map[string]string{"price": "price_clean", "accrued": "accrued_int", "duration": "duration_mod", "convexity": "convexity"}
+				if result.Details.InstrumentID != instrumentID || result.Details.ISIN != positions[0].ISIN || result.Details.Field != fields[tt.missing] {
+					t.Fatalf("incorrect details: %+v", result.Details)
+				}
+			}
 			if store.saveCalls != tt.wantSaves {
 				t.Errorf("SaveCalculation called %d times, want %d", store.saveCalls, tt.wantSaves)
 			}
@@ -376,7 +458,7 @@ func assertCalculationHTTPError(t *testing.T, response *httptest.ResponseRecorde
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Code != code || result.Message == "" || len(body) != 3 || string(body["details"]) != "null" {
+	if result.Code != code || result.Message == "" || len(body) != 3 {
 		t.Errorf("unexpected error response: %s", response.Body.String())
 	}
 }

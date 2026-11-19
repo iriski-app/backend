@@ -223,6 +223,11 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 			positions := []PositionInput{{InstrumentID: uuid.New(), Side: models.DealSideBuy, Quantity: 1}}
 			run, results, err := NewService(store).CalculatePositions(context.Background(), uuid.New(), positions)
 			assertCalculationError(t, run, results, err, tt.wantErr)
+			var detail *PositionDataError
+			fields := map[string]string{"price": "price_clean", "accrued": "accrued_int", "duration": "duration_mod", "convexity": "convexity"}
+			if !errors.As(err, &detail) || detail.InstrumentID != positions[0].InstrumentID || detail.Field != fields[tt.missing] {
+				t.Fatalf("wrong missing field context: %v", err)
+			}
 		})
 	}
 }

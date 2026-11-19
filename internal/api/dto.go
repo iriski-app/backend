@@ -66,6 +66,8 @@ type CalculationPositionResponse struct {
 	AccruedIntFXRate   *float64        `json:"accrued_int_fx_rate"`
 	PriceFXDate        *time.Time      `json:"price_fx_date"`
 	AccruedIntFXDate   *time.Time      `json:"accrued_int_fx_date"`
+	PriceFXSource      *string         `json:"price_fx_source"`
+	AccruedIntFXSource *string         `json:"accrued_int_fx_source"`
 	DurationMod        *float64        `json:"duration_mod"`
 	DV01               *float64        `json:"dv01"`
 	Source             models.Source   `json:"source"`

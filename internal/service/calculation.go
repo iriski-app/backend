@@ -138,27 +138,30 @@ func (s *Service) CalculatePositions(
 			return models.CalcRun{}, []models.CalcResult{}, err
 		}
 		if curMarketData.DurationMod == nil {
-			return models.CalcRun{}, []models.CalcResult{}, ErrPlaceHolder // TODO: Отправка в ML
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "duration_mod", AsOfDate: asOfDate, Cause: errors.Join(ErrMissingParameter, ErrPlaceHolder)}
 		}
 		if curMarketData.AccruedInt == nil {
-			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: accrued interest", ErrMissingParameter)
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
 		if curMarketData.PriceClean == nil {
-			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: price", ErrMissingParameter)
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_clean", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
 		if curMarketData.Convexity == nil {
-			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: convexity", ErrMissingParameter)
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "convexity", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
-		if curMarketData.PriceCurrency == nil || curMarketData.AccruedIntCurrency == nil {
-			return models.CalcRun{}, nil, fmt.Errorf("%w: price or accrued interest currency", ErrMissingParameter)
+		if curMarketData.PriceCurrency == nil || *curMarketData.PriceCurrency == "" {
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_currency", AsOfDate: asOfDate, Cause: ErrMissingParameter}
+		}
+		if curMarketData.AccruedIntCurrency == nil || *curMarketData.AccruedIntCurrency == "" {
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int_currency", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
 		priceFX, err := s.conversionRate(ctx, *curMarketData.PriceCurrency, asOfDate, rates)
 		if err != nil {
-			return models.CalcRun{}, nil, err
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_clean", Currency: *curMarketData.PriceCurrency, AsOfDate: asOfDate, Cause: err}
 		}
 		accruedFX, err := s.conversionRate(ctx, *curMarketData.AccruedIntCurrency, asOfDate, rates)
 		if err != nil {
-			return models.CalcRun{}, nil, err
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int", Currency: *curMarketData.AccruedIntCurrency, AsOfDate: asOfDate, Cause: err}
 		}
 		marketValue := float64(position.Quantity) * (*curMarketData.PriceClean*priceFX.value + *curMarketData.AccruedInt*accruedFX.value)
 		if math.IsNaN(marketValue) || math.IsInf(marketValue, 0) {
@@ -186,6 +189,8 @@ func (s *Service) CalculatePositions(
 			AccruedIntFXRate:   &accruedFX.value,
 			PriceFXDate:        priceFX.date,
 			AccruedIntFXDate:   accruedFX.date,
+			PriceFXSource:      priceFX.source,
+			AccruedIntFXSource: accruedFX.source,
 			FairValue:          &marketValue,
 			DurationMod:        curMarketData.DurationMod,
 			Convexity:          curMarketData.Convexity,
@@ -214,8 +219,9 @@ func (s *Service) CalculatePositions(
 }
 
 type conversionRate struct {
-	value float64
-	date  *time.Time
+	value  float64
+	date   *time.Time
+	source *string
 }
 
 func (s *Service) conversionRate(ctx context.Context, currency string, date time.Time, cache map[string]conversionRate) (conversionRate, error) {
@@ -230,7 +236,7 @@ func (s *Service) conversionRate(ctx context.Context, currency string, date time
 	}
 	fx, err := s.Store.GetFXRate(ctx, currency, "cbr", date)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return conversionRate{}, fmt.Errorf("%w: %s", ErrMissingFXRate, currency)
+		return conversionRate{}, fmt.Errorf("%w: %s: %w", ErrMissingFXRate, currency, err)
 	}
 	if err != nil {
 		return conversionRate{}, err
@@ -241,10 +247,17 @@ func (s *Service) conversionRate(ctx context.Context, currency string, date time
 		return conversionRate{}, fmt.Errorf("%w: future rate for %s", ErrMissingFXRate, currency)
 	}
 	value, err := strconv.ParseFloat(fx.Value, 64)
-	if err != nil || fx.Nominal <= 0 || value <= 0 || math.IsInf(value, 0) || math.IsNaN(value) {
+	if err != nil {
+		return conversionRate{}, fmt.Errorf("%w: invalid rate for %s: %w", ErrMissingFXRate, currency, err)
+	}
+	if fx.Nominal <= 0 || value <= 0 || math.IsInf(value, 0) || math.IsNaN(value) {
 		return conversionRate{}, fmt.Errorf("%w: invalid rate for %s", ErrMissingFXRate, currency)
 	}
-	rate := conversionRate{value: value / float64(fx.Nominal), date: &effective}
+	source := fx.Source
+	if source == "" {
+		source = "cbr"
+	}
+	rate := conversionRate{value: value / float64(fx.Nominal), date: &effective, source: &source}
 	cache[currency] = rate
 	return rate, nil
 }
