@@ -24,6 +24,7 @@ enum MetricSource {
   METRIC_SOURCE_UNSPECIFIED = 0;
   METRIC_SOURCE_OBSERVED = 1;
   METRIC_SOURCE_CATBOOST = 2;
+  METRIC_SOURCE_COUPON_RULE = 3;
 }
 
 message BondFeatures {
@@ -103,12 +104,33 @@ enum CalculationKind {
   CALCULATION_KIND_STRESS_CHANGE = 2;
 }
 
+enum ExplanationMethod {
+  EXPLANATION_METHOD_UNSPECIFIED = 0;
+  EXPLANATION_METHOD_DURATION_CONVEXITY = 1;
+}
+
+// Values actually used by the backend, from the original calculation snapshot.
+// The LLM must not look up parameters by ISIN or calculate missing values.
+message PositionCalculationInputs {
+  string current_fair_value = 1; // Nonnegative absolute position value, native currency.
+  string position_currency = 2;
+  string fx_rate_to_rub = 3; // RUB per native currency unit; RUB must use 1.
+  optional double duration_mod = 4; // Years.
+  optional double convexity = 5; // Years squared.
+  MetricSource duration_source = 6;
+  MetricSource convexity_source = 7;
+  string coupon_type = 8; // fixed, zero or floating.
+  optional double coupon_frequency = 9; // Payments per year; required for floating.
+}
+
 message ExplanationPosition {
   string position_id = 1;
   string side = 2; // buy or sell.
   string value_rub = 3;
   string change_rub = 4;
   bool estimated = 5;
+  string isin = 6; // Optional display identifier; not a model input.
+  PositionCalculationInputs inputs = 7; // Optional for old callers.
 }
 
 message ExplainCalculationRequest {
@@ -121,6 +143,12 @@ message ExplainCalculationRequest {
   bool incomplete = 7;
   bool estimated = 8;
   repeated ExplanationPosition positions = 9;
+  optional double yield_shift_bp = 10; // Parallel yield shift, not a CBR-rate forecast.
+  ExplanationMethod method = 11; // Opt in to an explanation of the calculation steps.
+  // With DURATION_CONVEXITY, value_rub is the signed risk contribution,
+  // total_rub is its sum, and STRESS_CHANGE change_rub must equal value_rub.
+  // Side is applied once: buy=+1, sell=-1; inputs.current_fair_value is absolute.
+  // DV01 uses yield_shift_bp=+1. Amounts are rounded to kopecks.
 }
 
 message ExplainCalculationResponse {
@@ -130,6 +158,8 @@ message ExplainCalculationResponse {
   repeated string fact_ids = 4;
   string model_version = 5;
   bool verified = 6;
+  bool calculation_details_available = 7;
+  repeated string limitations = 8;
 }
 
 message ReadinessRequest {}

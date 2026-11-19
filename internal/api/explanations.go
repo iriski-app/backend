@@ -57,5 +57,11 @@ func (h *Handler) ExplainCalculation(w http.ResponseWriter, r *http.Request) {
 		ModelVersion                string          `json:"model_version"`
 		CreatedAt                   string          `json:"created_at"`
 		CalculationDetailsAvailable bool            `json:"calculation_details_available"`
-	}{result.ID, calcID, result.Answer, result.ValidationOK, json.RawMessage(result.FactIDs), result.GeneratedBy, result.CreatedAt.Format("2006-01-02T15:04:05Z07:00"), false})
+		Limitations                 json.RawMessage `json:"limitations,omitempty"`
+	}{
+		ID: result.ID, CalculationID: calcID, Text: result.Answer, Verified: result.ValidationOK,
+		FactIDs: json.RawMessage(result.FactIDs), ModelVersion: result.GeneratedBy,
+		CreatedAt:                   result.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		CalculationDetailsAvailable: result.CalculationDetailsAvailable, Limitations: json.RawMessage(result.Limitations),
+	})
 }

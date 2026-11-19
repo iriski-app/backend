@@ -41,3 +41,26 @@ func TestExplainDV01(t *testing.T) {
 		t.Fatalf("error %v saved %d", err, saved)
 	}
 }
+
+func TestExplanationInputsUseSavedMetrics(t *testing.T) {
+	position := models.CalcResult{
+		Side: models.DealSideBuy, Currency: "RUB", FairValue: new(10000.0),
+		DurationMod: new(2.0), Convexity: new(2.0), CouponType: "fixed",
+		ConvexityEstimate: new("{}"),
+	}
+	inputs := explanationInputs(position, -200)
+	if inputs == nil || inputs.CurrentFairValue != "10000" || inputs.FxRateToRub != "1" ||
+		inputs.DurationSource != mlv1.MetricSource_METRIC_SOURCE_OBSERVED || inputs.ConvexitySource != mlv1.MetricSource_METRIC_SOURCE_CATBOOST {
+		t.Fatalf("unexpected fixed coupon inputs: %v", inputs)
+	}
+	position.CouponType, position.CouponFreq = "floating", new(2)
+	position.DurationMod, position.Convexity, position.ConvexityEstimate = new(0.5), new(0.0), nil
+	inputs = explanationInputs(position, -50)
+	if inputs == nil || inputs.DurationSource != mlv1.MetricSource_METRIC_SOURCE_COUPON_RULE ||
+		inputs.ConvexitySource != mlv1.MetricSource_METRIC_SOURCE_COUPON_RULE {
+		t.Fatalf("unexpected floating coupon inputs: %v", inputs)
+	}
+	if got := explanationInputs(position, -200); got != nil {
+		t.Fatalf("details contradict the saved calculation: %v", got)
+	}
+}

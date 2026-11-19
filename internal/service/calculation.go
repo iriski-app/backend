@@ -178,6 +178,9 @@ func (s *Service) CalculatePositions(
 			DurationEstimate:  durationEstimate,
 			ConvexityEstimate: convexityEstimate,
 			YTM:               curMarketData.YTM,
+			ISIN:              curInstrument.ISIN,
+			CouponType:        curInstrument.CouponType,
+			CouponFreq:        curInstrument.CouponFreq,
 		}
 		if store, ok := s.Store.(featureStore); ok {
 			features, featureErr := store.GetBondFeatures(ctx, curInstrument.ID, curMarketData.Source, curMarketData.TradeDate)
