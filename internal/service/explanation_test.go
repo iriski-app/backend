@@ -25,7 +25,7 @@ func (c *explanationTestClient) ExplainCalculation(_ context.Context, r *mlv1.Ex
 	if c.explain != nil {
 		return c.explain(r)
 	}
-	if !r.Incomplete || r.TotalRub != "0.19" || len(r.Positions) != 2 || r.Positions[0].ValueRub != "-0.02" || r.Positions[1].ValueRub != "0.21" {
+	if !r.Incomplete || r.TotalRub != "0.18" || len(r.Positions) != 2 || r.Positions[0].ValueRub != "-0.03" || r.Positions[1].ValueRub != "0.21" {
 		return nil, errors.New("invalid facts")
 	}
 	return &mlv1.ExplainCalculationResponse{RequestId: r.RequestId, CalculationId: r.CalculationId, Text: "DV01", ModelVersion: "v1", Verified: c.verified, FactIds: []string{"total_rub"}}, nil
@@ -47,6 +47,49 @@ func TestExplainDV01(t *testing.T) {
 	client.verified = false
 	if _, err := svc.ExplainDV01(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrMLUnavailable) || saved != 1 {
 		t.Fatalf("error %v saved %d", err, saved)
+	}
+}
+
+func TestRoundExplanationAmountsPreservesLargeBasketTotal(t *testing.T) {
+	for _, sign := range []int64{1, -1} {
+		value := float64(sign) * 0.0049
+		positions := make([]models.CalcResult, 1000)
+		for i := range positions {
+			positions[i] = models.CalcResult{ID: uuid.New(), Side: models.DealSideBuy, DV01: &value}
+		}
+		total, contributions, err := roundExplanationAmounts(float64(sign)*4.90, positions)
+		if err != nil || total != sign*490 {
+			t.Fatalf("sign=%d: total=%d, err=%v", sign, total, err)
+		}
+		var sum int64
+		for _, cents := range contributions {
+			if cents != 0 && cents != sign {
+				t.Fatalf("sign=%d: invalid rounded contribution %d", sign, cents)
+			}
+			sum += cents
+		}
+		if sum != total {
+			t.Fatalf("sign=%d: contributions sum to %d, total is %d", sign, sum, total)
+		}
+	}
+}
+
+func TestRoundExplanationAmountsBreaksHalfCentTiesByPositionID(t *testing.T) {
+	a := models.CalcResult{ID: uuid.UUID{1}, Side: models.DealSideBuy, DV01: new(0.005)}
+	b := models.CalcResult{ID: uuid.UUID{2}, Side: models.DealSideBuy, DV01: new(0.005)}
+	total, contributions, err := roundExplanationAmounts(0.01, []models.CalcResult{b, a})
+	if err != nil || total != 1 || len(contributions) != 2 || contributions[0] != 0 || contributions[1] != 1 {
+		t.Fatalf("total=%d, contributions=%v, err=%v", total, contributions, err)
+	}
+	for _, tc := range []struct {
+		value float64
+		cents int64
+	}{{1.005, 101}, {-1.005, -101}} {
+		a.DV01 = new(tc.value)
+		total, contributions, err := roundExplanationAmounts(tc.value, []models.CalcResult{a})
+		if err != nil || total != tc.cents || len(contributions) != 1 || contributions[0] != tc.cents {
+			t.Fatalf("value=%g: total=%d, contributions=%v, err=%v", tc.value, total, contributions, err)
+		}
 	}
 }
 

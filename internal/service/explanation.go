@@ -1,11 +1,14 @@
 package service
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,17 +44,16 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 	if !ok {
 		return models.LLMExplanation{}, ErrMLUnavailable
 	}
+	totalCents, positionCents, err := roundExplanationAmounts(*run.TotalDV01Rub, positions)
+	if err != nil {
+		return models.LLMExplanation{}, err
+	}
 	req := &mlv1.ExplainCalculationRequest{RequestId: uuid.NewString(), CalculationId: calcID.String(), CalculationKind: mlv1.CalculationKind_CALCULATION_KIND_DV01, Currency: "RUB", DataAsOf: run.AsOfDate.Format("2006-01-02")}
 	req.Incomplete = run.Incomplete != nil && *run.Incomplete
-	var totalMicros, totalCents int64
+	req.TotalRub = formatCents(totalCents)
 	hasCalculationDetails := true
-	for _, p := range positions {
-		if p.DV01 == nil || !finiteStress(*p.DV01) || math.Abs(*p.DV01) > 1e9 || (p.Side != models.DealSideBuy && p.Side != models.DealSideSell) {
-			return models.LLMExplanation{}, fmt.Errorf("%w: invalid contribution", ErrMissingParameter)
-		}
-		totalMicros += int64(math.Round(*p.DV01 * 1e6))
-		cents := int64(math.Round(*p.DV01 * 100))
-		totalCents += cents
+	for i, p := range positions {
+		cents := positionCents[i]
 		estimated := p.DurationEstimate != nil || p.ConvexityEstimate != nil
 		req.Estimated = req.Estimated || estimated
 		inputs := explanationInputs(p, cents)
@@ -61,10 +63,6 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 			Estimated: estimated, Isin: strings.TrimSpace(p.ISIN), Inputs: inputs,
 		})
 	}
-	if math.Abs(float64(totalMicros)/1e6-*run.TotalDV01Rub) > float64(len(positions)+1)*0.0000005+1e-9 {
-		return models.LLMExplanation{}, fmt.Errorf("%w: inconsistent contributions", ErrMissingParameter)
-	}
-	req.TotalRub = formatCents(totalCents)
 	if hasCalculationDetails {
 		req.Method = mlv1.ExplanationMethod_EXPLANATION_METHOD_DURATION_CONVEXITY
 		req.YieldShiftBp = new(1.0)
@@ -109,6 +107,62 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 		return models.LLMExplanation{}, err
 	}
 	return explanation, nil
+}
+
+func roundExplanationAmounts(totalRub float64, positions []models.CalcResult) (int64, []int64, error) {
+	const microsPerCent = 10000
+	type remainder struct {
+		index  int
+		micros int64
+	}
+	positionCents := make([]int64, len(positions))
+	remainders := make([]remainder, 0, len(positions))
+	var sumMicros, sumFloorCents int64
+	for i, p := range positions {
+		if p.DV01 == nil || !finiteStress(*p.DV01) || math.Abs(*p.DV01) > 1e9 || (p.Side != models.DealSideBuy && p.Side != models.DealSideSell) {
+			return 0, nil, fmt.Errorf("%w: invalid contribution", ErrMissingParameter)
+		}
+		micros := int64(math.Round(*p.DV01 * 1e6))
+		cents, fraction := micros/microsPerCent, micros%microsPerCent
+		if fraction < 0 {
+			// Go truncates towards zero. Use the floor and a positive remainder.
+			cents--
+			fraction += microsPerCent
+		}
+		positionCents[i] = cents
+		sumFloorCents += cents
+		sumMicros += micros
+		if fraction != 0 {
+			remainders = append(remainders, remainder{index: i, micros: fraction})
+		}
+	}
+	if math.Abs(float64(sumMicros)/1e6-totalRub) > float64(len(positions)+1)*0.0000005+1e-9 {
+		return 0, nil, fmt.Errorf("%w: inconsistent contributions", ErrMissingParameter)
+	}
+	totalMicros := int64(math.Round(totalRub * 1e6))
+	totalCents := (totalMicros + microsPerCent/2) / microsPerCent
+	if totalMicros < 0 {
+		totalCents = (totalMicros - microsPerCent/2) / microsPerCent
+	}
+	toDistribute := totalCents - sumFloorCents
+	if toDistribute < 0 || toDistribute > int64(len(remainders)) {
+		return 0, nil, fmt.Errorf("%w: cannot round contributions to the saved total", ErrMissingParameter)
+	}
+	if toDistribute == 0 {
+		return totalCents, positionCents, nil
+	}
+	// Round up the largest remainders first to keep each contribution within
+	// one kopeck of its original value and make ties independent of row order.
+	slices.SortFunc(remainders, func(a, b remainder) int {
+		if byFraction := cmp.Compare(b.micros, a.micros); byFraction != 0 {
+			return byFraction
+		}
+		return bytes.Compare(positions[a.index].ID[:], positions[b.index].ID[:])
+	})
+	for _, p := range remainders[:toDistribute] {
+		positionCents[p.index]++
+	}
+	return totalCents, positionCents, nil
 }
 
 func clearExplanationDetails(req *mlv1.ExplainCalculationRequest) {
