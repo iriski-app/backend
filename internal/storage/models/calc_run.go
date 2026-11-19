@@ -20,5 +20,6 @@ type CalcRun struct {
 	AsOfDate     time.Time  `gorm:"type:date;not null"`
 	Status       CalcStatus `gorm:"type:text;not null;check:calc_status_valid,status IN ('running', 'success', 'failed')"`
 	TotalDV01Rub *float64   `gorm:"type:numeric(20,6)"`
-	CreatedAt    time.Time  `gorm:"type:timestamptz;not null"`
+	Incomplete   *bool
+	CreatedAt    time.Time `gorm:"type:timestamptz;not null"`
 }

@@ -36,7 +36,8 @@ type GetInstrumentResponse struct {
 }
 
 type CalculationRequest struct {
-	Positions []Position `json:"positions"`
+	Positions  []Position `json:"positions"`
+	Incomplete *bool      `json:"incomplete,omitempty"`
 }
 
 type Position struct {
@@ -50,6 +51,7 @@ type CalculationResponse struct {
 	Status       models.CalcStatus             `json:"status"`
 	AsOfDate     time.Time                     `json:"as_of_date"`
 	TotalDV01Rub *float64                      `json:"total_dv01_rub"`
+	Incomplete   *bool                         `json:"incomplete,omitempty"`
 	Positions    []CalculationPositionResponse `json:"positions"`
 }
 

@@ -94,6 +94,14 @@ func (s *Service) CalculatePositions(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	positions []PositionInput) (models.CalcRun, []models.CalcResult, error) {
+	return s.CalculatePositionsWithCoverage(ctx, sessionID, positions, nil)
+}
+
+func (s *Service) CalculatePositionsWithCoverage(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	positions []PositionInput,
+	incomplete *bool) (models.CalcRun, []models.CalcResult, error) {
 	if len(positions) == 0 {
 		return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf(
 			"%w: must be at least one position", ErrInvalidParameter)
@@ -111,6 +119,7 @@ func (s *Service) CalculatePositions(
 		AsOfDate:     asOfDate,
 		Status:       models.CalcStatusRunning,
 		TotalDV01Rub: nil,
+		Incomplete:   incomplete,
 		CreatedAt:    time.Now(),
 	}
 	riskPositions := make([]risk.Position, len(positions))

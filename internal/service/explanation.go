@@ -42,6 +42,7 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 		return models.LLMExplanation{}, ErrMLUnavailable
 	}
 	req := &mlv1.ExplainCalculationRequest{RequestId: uuid.NewString(), CalculationId: calcID.String(), CalculationKind: mlv1.CalculationKind_CALCULATION_KIND_DV01, Currency: "RUB", DataAsOf: run.AsOfDate.Format("2006-01-02")}
+	req.Incomplete = run.Incomplete != nil && *run.Incomplete
 	var totalMicros, totalCents int64
 	hasCalculationDetails := true
 	for _, p := range positions {

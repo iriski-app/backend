@@ -169,7 +169,7 @@ func TestMOEXToMLCalculationFlow(t *testing.T) {
 				grpcServer.Stop()
 			}
 			mock.calls = nil
-			body := fmt.Sprintf(`{"positions":[{"isin":%q,"side":"buy","quantity":2}]}`, instrument.ISIN)
+			body := fmt.Sprintf(`{"positions":[{"isin":%q,"side":"buy","quantity":2}],"incomplete":true}`, instrument.ISIN)
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/risk-calculations", strings.NewReader(body)))
 			if response.Code != tc.wantStatus || len(mock.calls) != tc.wantCalls {
@@ -190,7 +190,7 @@ func TestMOEXToMLCalculationFlow(t *testing.T) {
 				convexity = 4
 			}
 			want := 2 * 1000.0 * (-duration*0.0001 + 0.5*convexity*0.0001*0.0001)
-			if got.TotalDV01Rub == nil || math.Abs(*got.TotalDV01Rub-want) > 1e-8 || len(got.Positions) != 1 {
+			if got.TotalDV01Rub == nil || math.Abs(*got.TotalDV01Rub-want) > 1e-8 || len(got.Positions) != 1 || got.Incomplete == nil || !*got.Incomplete {
 				t.Fatalf("calculation=%+v want=%v", got, want)
 			}
 			if (len(got.Positions[0].DurationEstimate) > 0) != (tc.duration == nil) || (len(got.Positions[0].ConvexityEstimate) > 0) != (tc.convexity == nil) {
@@ -203,7 +203,7 @@ func TestMOEXToMLCalculationFlow(t *testing.T) {
 			}
 			saved := httptest.NewRecorder()
 			router.ServeHTTP(saved, get)
-			if saved.Code != http.StatusOK || (tc.wantCalls > 0 && !strings.Contains(saved.Body.String(), "test-v1")) {
+			if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), `"incomplete":true`) || (tc.wantCalls > 0 && !strings.Contains(saved.Body.String(), "test-v1")) {
 				t.Fatalf("saved status=%d body=%s", saved.Code, saved.Body.String())
 			}
 		})

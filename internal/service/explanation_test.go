@@ -25,7 +25,7 @@ func (c *explanationTestClient) ExplainCalculation(_ context.Context, r *mlv1.Ex
 	if c.explain != nil {
 		return c.explain(r)
 	}
-	if r.TotalRub != "0.19" || len(r.Positions) != 2 || r.Positions[0].ValueRub != "-0.02" || r.Positions[1].ValueRub != "0.21" {
+	if !r.Incomplete || r.TotalRub != "0.19" || len(r.Positions) != 2 || r.Positions[0].ValueRub != "-0.02" || r.Positions[1].ValueRub != "0.21" {
 		return nil, errors.New("invalid facts")
 	}
 	return &mlv1.ExplainCalculationResponse{RequestId: r.RequestId, CalculationId: r.CalculationId, Text: "DV01", ModelVersion: "v1", Verified: c.verified, FactIds: []string{"total_rub"}}, nil
@@ -36,7 +36,7 @@ func TestExplainDV01(t *testing.T) {
 	positions := []models.CalcResult{{ID: uuid.New(), Side: models.DealSideBuy, DV01: &a}, {ID: uuid.New(), Side: models.DealSideSell, DV01: &b}}
 	saved := 0
 	store := &fakeStore{GetCalculationFunc: func(context.Context, uuid.UUID, uuid.UUID) (models.CalcRun, []models.CalcResult, error) {
-		return models.CalcRun{Status: models.CalcStatusSuccess, AsOfDate: date, TotalDV01Rub: &total}, positions, nil
+		return models.CalcRun{Status: models.CalcStatusSuccess, AsOfDate: date, TotalDV01Rub: &total, Incomplete: new(true)}, positions, nil
 	}, SaveExplanationFunc: func(context.Context, models.LLMExplanation) error { saved++; return nil }}
 	svc := NewService(store)
 	client := &explanationTestClient{verified: true}

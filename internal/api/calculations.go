@@ -127,10 +127,11 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 			Quantity:     position.Quantity,
 		}
 	}
-	calcRun, calcResults, err := h.Service.CalculatePositions(
+	calcRun, calcResults, err := h.Service.CalculatePositionsWithCoverage(
 		ctx,
 		sessionId,
 		positions,
+		req.Incomplete,
 	)
 	if err != nil {
 		switch {
@@ -204,6 +205,7 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 		Status:       calcRun.Status,
 		AsOfDate:     calcRun.AsOfDate,
 		TotalDV01Rub: calcRun.TotalDV01Rub,
+		Incomplete:   calcRun.Incomplete,
 		Positions:    make([]CalculationPositionResponse, len(calcResults)),
 	}
 	for i, result := range calcResults {
