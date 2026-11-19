@@ -113,6 +113,9 @@ func TestUpsertMarketDataKeysAndMissingValues(t *testing.T) {
 	data.Convexity = nil
 	data.YTM = nil
 	data.NumTrades = &zeroTrades
+	priceCurrency, accruedCurrency := "USD", "RUB"
+	data.PriceCurrency = &priceCurrency
+	data.AccruedIntCurrency = &accruedCurrency
 	data.LoadedAt = data.LoadedAt.Add(time.Hour)
 	if err := store.UpsertMarketData(ctx, data); err != nil {
 		t.Fatal(err)
@@ -126,6 +129,9 @@ func TestUpsertMarketDataKeysAndMissingValues(t *testing.T) {
 	}
 	if stored.AccruedInt == nil || *stored.AccruedInt != 0 || stored.NumTrades == nil || *stored.NumTrades != 0 {
 		t.Fatalf("zero values were not updated: %+v", stored)
+	}
+	if stored.PriceCurrency == nil || *stored.PriceCurrency != priceCurrency || stored.AccruedIntCurrency == nil || *stored.AccruedIntCurrency != accruedCurrency {
+		t.Fatalf("currencies were not updated: %+v", stored)
 	}
 	if !stored.LoadedAt.Equal(data.LoadedAt) {
 		t.Fatalf("load time %v, want %v", stored.LoadedAt, data.LoadedAt)
@@ -268,13 +274,15 @@ func TestLargeBondPriceMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := models.CalcResult{
-		ID:           uuid.New(),
-		CalcRunID:    run.ID,
-		InstrumentID: instrument.ID,
-		Side:         models.DealSideBuy,
-		Quantity:     1,
-		Currency:     "RUB",
-		PriceClean:   data.PriceClean,
+		ID:                 uuid.New(),
+		CalcRunID:          run.ID,
+		InstrumentID:       instrument.ID,
+		Side:               models.DealSideBuy,
+		Quantity:           1,
+		Currency:           "RUB",
+		PriceClean:         data.PriceClean,
+		PriceFXSource:      new("cbr"),
+		AccruedIntFXSource: new("cbr"),
 	}
 	if err := store.db.Create(&snapshot).Error; err != nil {
 		t.Fatal(err)
@@ -292,6 +300,9 @@ func TestLargeBondPriceMigration(t *testing.T) {
 	}
 	if oldSnapshot.PriceClean == nil || *oldSnapshot.PriceClean != 1000 {
 		t.Fatalf("migration changed old snapshot: %+v", oldSnapshot)
+	}
+	if oldSnapshot.PriceFXSource == nil || *oldSnapshot.PriceFXSource != "cbr" || oldSnapshot.AccruedIntFXSource == nil || *oldSnapshot.AccruedIntFXSource != "cbr" {
+		t.Fatalf("FX sources missing: %+v", oldSnapshot)
 	}
 	price := 9200000.0
 	data.PriceClean = &price
@@ -725,5 +736,49 @@ func TestGetLatestMarketDate(t *testing.T) {
 	_, err = store.GetLatestMarketDate(ctx, models.SourceMoex, date.AddDate(0, 0, -1))
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("got %v, want record not found", err)
+	}
+}
+
+func TestGetLatestCommonMarketDate(t *testing.T) {
+	store := newIngestionStore(t)
+	ctx := context.Background()
+	first, err := store.UpsertInstrument(ctx, ingestionInstrument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := ingestionInstrument()
+	other.ISIN = "US0378331005"
+	second, err := store.UpsertInstrument(ctx, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	date := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+	for _, entry := range []struct {
+		id   uuid.UUID
+		date time.Time
+	}{{first.ID, date}, {second.ID, date}, {second.ID, date.AddDate(0, 0, 1)}} {
+		data := ingestionMarketData(entry.id)
+		data.TradeDate = entry.date
+		if err := store.UpsertMarketData(ctx, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		ids  []uuid.UUID
+		want time.Time
+	}{
+		{[]uuid.UUID{first.ID}, date},
+		{[]uuid.UUID{second.ID}, date.AddDate(0, 0, 1)},
+		{[]uuid.UUID{first.ID, second.ID}, date},
+		{[]uuid.UUID{first.ID, first.ID}, date},
+	} {
+		got, err := store.GetLatestCommonMarketDate(ctx, tc.ids, models.SourceMoex, date.AddDate(0, 0, 1))
+		if err != nil || !got.Equal(tc.want) {
+			t.Fatalf("ids %v: got %v, %v; want %v", tc.ids, got, err, tc.want)
+		}
+	}
+	_, err = store.GetLatestCommonMarketDate(ctx, []uuid.UUID{first.ID, uuid.New()}, models.SourceMoex, date.AddDate(0, 0, 1))
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("missing instrument: %v", err)
 	}
 }

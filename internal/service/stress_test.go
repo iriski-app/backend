@@ -87,4 +87,9 @@ func TestAnalyzeStressFallbackAndSuccess(t *testing.T) {
 	if result.MLAnalysis.Reason != "model_not_ready" || result.TotalChangeRub != -1 {
 		t.Fatalf("result %+v", result)
 	}
+	snapshot.PriceCurrency = new("USD")
+	svc.AnalyzeStress(context.Background(), uuid.New(), &result)
+	if result.MLAnalysis.Reason != "outside_model_range" || result.TotalChangeRub != -1 {
+		t.Fatalf("result %+v", result)
+	}
 }

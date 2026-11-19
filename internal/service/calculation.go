@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -109,7 +111,11 @@ func (s *Service) CalculatePositionsWithCoverage(
 	mlCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	calcRunID := uuid.New()
-	asOfDate, err := s.Store.GetLatestMarketDate(ctx, models.SourceMoex, marketDateCutoff(time.Now()))
+	ids := make([]uuid.UUID, len(positions))
+	for i, position := range positions {
+		ids[i] = position.InstrumentID
+	}
+	asOfDate, err := s.Store.GetLatestCommonMarketDate(ctx, ids, models.SourceMoex, marketDateCutoff(time.Now()))
 	if err != nil {
 		return models.CalcRun{}, nil, err
 	}
@@ -124,6 +130,7 @@ func (s *Service) CalculatePositionsWithCoverage(
 	}
 	riskPositions := make([]risk.Position, len(positions))
 	calcResults := make([]models.CalcResult, len(positions))
+	rates := make(map[string]conversionRate)
 
 	for i, position := range positions {
 		if position.Quantity <= 0 {
@@ -143,27 +150,44 @@ func (s *Service) CalculatePositionsWithCoverage(
 			return models.CalcRun{}, []models.CalcResult{}, err
 		}
 		if curMarketData.AccruedInt == nil {
-			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: accrued interest", ErrMissingParameter)
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
 		if curMarketData.PriceClean == nil {
-			return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf("%w: price", ErrMissingParameter)
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_clean", AsOfDate: asOfDate, Cause: ErrMissingParameter}
+		}
+		if curMarketData.PriceCurrency == nil || *curMarketData.PriceCurrency == "" {
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_currency", AsOfDate: asOfDate, Cause: ErrMissingParameter}
+		}
+		if curMarketData.AccruedIntCurrency == nil || *curMarketData.AccruedIntCurrency == "" {
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int_currency", AsOfDate: asOfDate, Cause: ErrMissingParameter}
+		}
+		priceFX, err := s.conversionRate(ctx, *curMarketData.PriceCurrency, asOfDate, rates)
+		if err != nil {
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_clean", Currency: *curMarketData.PriceCurrency, AsOfDate: asOfDate, Cause: err}
+		}
+		accruedFX, err := s.conversionRate(ctx, *curMarketData.AccruedIntCurrency, asOfDate, rates)
+		if err != nil {
+			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int", Currency: *curMarketData.AccruedIntCurrency, AsOfDate: asOfDate, Cause: err}
+		}
+		marketValue := float64(position.Quantity) * (*curMarketData.PriceClean*priceFX.value + *curMarketData.AccruedInt*accruedFX.value)
+		if math.IsNaN(marketValue) || math.IsInf(marketValue, 0) {
+			return models.CalcRun{}, nil, fmt.Errorf("%w: invalid market value", ErrInvalidParameter)
 		}
 		var durationEstimate, convexityEstimate *string
 		if curMarketData.DurationMod == nil {
 			value, metadata, err := s.estimateMetric(mlCtx, curMarketData, mlv1.MetricKind_METRIC_KIND_DURATION_MOD)
 			if err != nil {
-				return models.CalcRun{}, nil, err
+				return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "duration_mod", AsOfDate: asOfDate, Cause: err}
 			}
 			curMarketData.DurationMod, durationEstimate = &value, &metadata
 		}
 		if curMarketData.Convexity == nil {
 			value, metadata, err := s.estimateMetric(mlCtx, curMarketData, mlv1.MetricKind_METRIC_KIND_CONVEXITY)
 			if err != nil {
-				return models.CalcRun{}, nil, err
+				return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "convexity", AsOfDate: asOfDate, Cause: err}
 			}
 			curMarketData.Convexity, convexityEstimate = &value, &metadata
 		}
-		marketValue := float64(position.Quantity) * (*curMarketData.PriceClean + *curMarketData.AccruedInt)
 		riskPositions[i] = risk.Position{
 			MarketValue: marketValue,
 			DurationMod: *curMarketData.DurationMod,
@@ -171,25 +195,33 @@ func (s *Service) CalculatePositionsWithCoverage(
 			Convexity:   *curMarketData.Convexity,
 		}
 		calcResults[i] = models.CalcResult{
-			ID:                uuid.New(),
-			CalcRunID:         calcRunID,
-			InstrumentID:      curInstrument.ID,
-			Side:              position.Side,
-			Quantity:          position.Quantity,
-			Currency:          "RUB",
-			MarketDate:        &curMarketData.TradeDate,
-			PriceClean:        curMarketData.PriceClean,
-			AccruedInt:        curMarketData.AccruedInt,
-			FairValue:         &marketValue,
-			DurationMod:       curMarketData.DurationMod,
-			Convexity:         curMarketData.Convexity,
-			DataSource:        models.SourceMoex,
-			DurationEstimate:  durationEstimate,
-			ConvexityEstimate: convexityEstimate,
-			YTM:               curMarketData.YTM,
-			ISIN:              curInstrument.ISIN,
-			CouponType:        curInstrument.CouponType,
-			CouponFreq:        curInstrument.CouponFreq,
+			ID:                 uuid.New(),
+			CalcRunID:          calcRunID,
+			InstrumentID:       curInstrument.ID,
+			Side:               position.Side,
+			Quantity:           position.Quantity,
+			Currency:           "RUB",
+			MarketDate:         &curMarketData.TradeDate,
+			PriceClean:         curMarketData.PriceClean,
+			AccruedInt:         curMarketData.AccruedInt,
+			PriceCurrency:      curMarketData.PriceCurrency,
+			AccruedIntCurrency: curMarketData.AccruedIntCurrency,
+			PriceFXRate:        &priceFX.value,
+			AccruedIntFXRate:   &accruedFX.value,
+			PriceFXDate:        priceFX.date,
+			AccruedIntFXDate:   accruedFX.date,
+			PriceFXSource:      priceFX.source,
+			AccruedIntFXSource: accruedFX.source,
+			FairValue:          &marketValue,
+			DurationMod:        curMarketData.DurationMod,
+			Convexity:          curMarketData.Convexity,
+			DataSource:         models.SourceMoex,
+			DurationEstimate:   durationEstimate,
+			ConvexityEstimate:  convexityEstimate,
+			YTM:                curMarketData.YTM,
+			ISIN:               curInstrument.ISIN,
+			CouponType:         curInstrument.CouponType,
+			CouponFreq:         curInstrument.CouponFreq,
 		}
 		if store, ok := s.Store.(featureStore); ok {
 			features, featureErr := store.GetBondFeatures(ctx, curInstrument.ID, curMarketData.Source, curMarketData.TradeDate)
@@ -220,4 +252,48 @@ func (s *Service) CalculatePositionsWithCoverage(
 	}
 
 	return calcRun, calcResults, nil
+}
+
+type conversionRate struct {
+	value  float64
+	date   *time.Time
+	source *string
+}
+
+func (s *Service) conversionRate(ctx context.Context, currency string, date time.Time, cache map[string]conversionRate) (conversionRate, error) {
+	if currency == "RUB" {
+		return conversionRate{value: 1}, nil
+	}
+	if currency == "" {
+		return conversionRate{}, fmt.Errorf("%w: empty currency", ErrMissingParameter)
+	}
+	if rate, ok := cache[currency]; ok {
+		return rate, nil
+	}
+	fx, err := s.Store.GetFXRate(ctx, currency, "cbr", date)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return conversionRate{}, fmt.Errorf("%w: %s: %w", ErrMissingFXRate, currency, err)
+	}
+	if err != nil {
+		return conversionRate{}, err
+	}
+	effective := time.Date(fx.EffectiveDate.Year(), fx.EffectiveDate.Month(), fx.EffectiveDate.Day(), 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
+	if effective.After(asOf) {
+		return conversionRate{}, fmt.Errorf("%w: future rate for %s", ErrMissingFXRate, currency)
+	}
+	value, err := strconv.ParseFloat(fx.Value, 64)
+	if err != nil {
+		return conversionRate{}, fmt.Errorf("%w: invalid rate for %s: %w", ErrMissingFXRate, currency, err)
+	}
+	if fx.Nominal <= 0 || value <= 0 || math.IsInf(value, 0) || math.IsNaN(value) {
+		return conversionRate{}, fmt.Errorf("%w: invalid rate for %s", ErrMissingFXRate, currency)
+	}
+	source := fx.Source
+	if source == "" {
+		source = "cbr"
+	}
+	rate := conversionRate{value: value / float64(fx.Nominal), date: &effective, source: &source}
+	cache[currency] = rate
+	return rate, nil
 }

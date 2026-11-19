@@ -63,13 +63,22 @@ func TestCalculationUsesMLOnlyForMissingMetrics(t *testing.T) {
 		GetLatestMarketDateFunc: func(context.Context, models.Source, time.Time) (time.Time, error) { return date, nil },
 		GetInstrumentByIDFunc:   func(context.Context, uuid.UUID) (models.Instrument, error) { return models.Instrument{ID: id}, nil },
 		GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
-			return models.MarketData{InstrumentID: id, Source: models.SourceMoex, TradeDate: date, PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration}, nil
+			return models.MarketData{
+				InstrumentID: id, Source: models.SourceMoex, TradeDate: date, PriceClean: &price,
+				AccruedInt: &accrued, DurationMod: &duration, PriceCurrency: new("USD"), AccruedIntCurrency: new("RUB"),
+			}, nil
+		},
+		GetFXRateFunc: func(_ context.Context, currency, source string, asOf time.Time) (models.FXRate, error) {
+			if currency != "USD" || source != "cbr" || !asOf.Equal(date) {
+				t.Fatalf("unexpected FX lookup: %s %s %s", currency, source, asOf)
+			}
+			return models.FXRate{Currency: currency, Source: source, EffectiveDate: date, Nominal: 1, Value: "82"}, nil
 		},
 		GetBondFeaturesFunc: func(_ context.Context, got uuid.UUID, source models.Source, day time.Time) (models.BondFeatures, error) {
 			if got != id || source != models.SourceMoex || !day.Equal(date) {
 				t.Fatal("incorrect snapshot")
 			}
-			return models.BondFeatures{SettlementDate: &settlement, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact, Currency: new("RUB"), FaceValue: new(1000.0)}, nil
+			return models.BondFeatures{SettlementDate: &settlement, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact, Currency: new("USD"), FaceValue: new(1000.0)}, nil
 		},
 		SaveCalculationFunc: func(_ context.Context, _ models.CalcRun, results []models.CalcResult) error {
 			saved = results
@@ -84,17 +93,20 @@ func TestCalculationUsesMLOnlyForMissingMetrics(t *testing.T) {
 		if !ok || time.Until(deadline) > 20*time.Second {
 			t.Fatal("missing shared calculation deadline")
 		}
-		if r.Metric != mlv1.MetricKind_METRIC_KIND_CONVEXITY || r.Features.YearsToMaturity == nil || *r.Features.YearsToMaturity != 1 || r.Features.Ytm != nil {
+		if r.Metric != mlv1.MetricKind_METRIC_KIND_CONVEXITY || r.Features.YearsToMaturity == nil || *r.Features.YearsToMaturity != 1 || r.Features.Ytm != nil || r.Features.CurrencyAsof != "USD" {
 			t.Fatalf("bad request: %+v", r)
 		}
 		return &mlv1.EstimateMissingMetricResponse{RequestId: r.RequestId, InstrumentId: r.InstrumentId, AsOfDate: r.AsOfDate, Metric: r.Metric, Value: 12, Source: mlv1.MetricSource_METRIC_SOURCE_CATBOOST, ModelVersion: "v1", ReviewRequired: true}, nil
 	})
-	_, results, err := svc.CalculatePositions(context.Background(), uuid.New(), []PositionInput{{InstrumentID: id, Side: models.DealSideBuy, Quantity: 1}})
+	run, results, err := svc.CalculatePositions(context.Background(), uuid.New(), []PositionInput{{InstrumentID: id, Side: models.DealSideBuy, Quantity: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 || len(saved) != 1 || *results[0].DurationMod != duration || *results[0].Convexity != 12 || results[0].DurationEstimate != nil || results[0].ConvexityEstimate == nil || !strings.Contains(*results[0].ConvexityEstimate, `"review_required":true`) {
 		t.Fatalf("wrong result: %+v", results)
+	}
+	if saved[0].FairValue == nil || *saved[0].FairValue != 82010 || run.TotalDV01Rub == nil || math.Abs(*run.TotalDV01Rub-(-24.5980794)) > 1e-8 {
+		t.Fatalf("expected DV01 in RUB with the estimated convexity, run %+v, position %+v", run, saved[0])
 	}
 }
 

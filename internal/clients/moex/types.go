@@ -52,6 +52,7 @@ type Bondization struct {
 type Coupon struct {
 	CouponDate   string   `json:"coupondate"`
 	StartDate    string   `json:"startdate"`
+	FaceUnit     string   `json:"faceunit"`
 	Value        *float64 `json:"value"`
 	ValuePercent *float64 `json:"valueprc"`
 	ValueRUB     *float64 `json:"value_rub"`
@@ -59,6 +60,7 @@ type Coupon struct {
 
 type Amortization struct {
 	AmortDate    string   `json:"amortdate"`
+	FaceUnit     string   `json:"faceunit"`
 	Value        *float64 `json:"value"`
 	ValuePercent *float64 `json:"valueprc"`
 	ValueRUB     *float64 `json:"value_rub"`

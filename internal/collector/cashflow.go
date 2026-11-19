@@ -59,6 +59,8 @@ func buildCashFlows(instrument moex.Instrument, data moex.MarketData, schedule m
 		return nil, fmt.Errorf("%w: missing buyback price", ErrInvalidData)
 	}
 	flows := make([]risk.CashFlow, 0, len(schedule.Coupons)+len(schedule.Amortizations)+1)
+	nominal := normalizeCurrency(data.FaceUnit)
+	mixedCurrencies := nominal != normalizeCurrency(data.CurrencyID)
 	var couponDates []time.Time
 	seenCoupons := make(map[time.Time]bool)
 	for _, coupon := range schedule.Coupons {
@@ -68,6 +70,9 @@ func buildCashFlows(instrument moex.Instrument, data moex.MarketData, schedule m
 		}
 		if !date.After(settlement) || date.After(horizon) {
 			continue
+		}
+		if mixedCurrencies && normalizeCurrency(coupon.FaceUnit) != nominal {
+			return nil, fmt.Errorf("%w: unexpected or missing coupon currency", ErrInvalidData)
 		}
 		if seenCoupons[date] || coupon.Value == nil || !validNumber(*coupon.Value) || *coupon.Value < 0 {
 			return nil, fmt.Errorf("%w: missing or duplicate coupon", ErrInvalidData)
@@ -104,6 +109,9 @@ func buildCashFlows(instrument moex.Instrument, data moex.MarketData, schedule m
 		}
 		if !date.After(settlement) || date.After(horizon) {
 			continue
+		}
+		if mixedCurrencies && normalizeCurrency(amortization.FaceUnit) != nominal {
+			return nil, fmt.Errorf("%w: unexpected or missing amortization currency", ErrInvalidData)
 		}
 		if seenAmortizations[date] || amortization.Value == nil || !validNumber(*amortization.Value) || *amortization.Value < 0 {
 			return nil, fmt.Errorf("%w: missing or duplicate amortization", ErrInvalidData)

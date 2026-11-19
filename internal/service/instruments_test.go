@@ -53,7 +53,7 @@ func TestGetInstrumentData(t *testing.T) {
 			data := models.MarketData{
 				InstrumentID: instrument.ID, Source: wantSource,
 				TradeDate:  time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
-				PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity,
+				PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 			}
 			if tt.missing == "price" || tt.missing == "all" {
 				data.PriceClean = nil
@@ -144,29 +144,39 @@ func TestGetInstrumentRejectsInvalidSourceBeforeStorage(t *testing.T) {
 func TestGetInstrumentEstimateStatus(t *testing.T) {
 	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
-		name                                                             string
-		configured, exact, priceAvailable, featuresAvailable, modelReady bool
-		want                                                             string
+		name                                                                        string
+		configured, exact, priceAvailable, featuresAvailable, modelReady, missingFX bool
+		want                                                                        string
 	}{
-		{"possible", true, true, true, true, true, CalculationEstimatePossible},
-		{"not configured", false, true, true, true, false, CalculationUnavailable},
-		{"calendar unknown", true, false, true, true, true, CalculationUnavailable},
-		{"price missing", true, true, false, true, true, CalculationUnavailable},
-		{"features missing", true, true, true, false, true, CalculationUnavailable},
-		{"model unavailable", true, true, true, true, false, CalculationUnavailable},
+		{"possible", true, true, true, true, true, false, CalculationEstimatePossible},
+		{"not configured", false, true, true, true, false, false, CalculationUnavailable},
+		{"calendar unknown", true, false, true, true, true, false, CalculationUnavailable},
+		{"price missing", true, true, false, true, true, false, CalculationUnavailable},
+		{"features missing", true, true, true, false, true, false, CalculationUnavailable},
+		{"model unavailable", true, true, true, true, false, false, CalculationUnavailable},
+		{"FX rate unavailable", true, true, true, true, true, true, CalculationUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			id := uuid.New()
 			price, accrued := 100.0, 0.0
-			data := models.MarketData{InstrumentID: id, Source: models.SourceMoex, TradeDate: date, PriceClean: &price, AccruedInt: &accrued}
+			data := models.MarketData{
+				InstrumentID: id, Source: models.SourceMoex, TradeDate: date, PriceClean: &price,
+				AccruedInt: &accrued, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
+			}
 			if !tc.priceAvailable {
 				data.PriceClean = nil
+			}
+			if tc.missingFX {
+				data.PriceCurrency = new("USD")
 			}
 			store := &fakeStore{
 				GetInstrumentFunc:       func(context.Context, string) (models.Instrument, error) { return models.Instrument{ID: id}, nil },
 				GetLatestMarketDateFunc: func(context.Context, models.Source, time.Time) (time.Time, error) { return date, nil },
 				GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
 					return data, nil
+				},
+				GetFXRateFunc: func(context.Context, string, string, time.Time) (models.FXRate, error) {
+					return models.FXRate{}, gorm.ErrRecordNotFound
 				},
 				GetBondFeaturesFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.BondFeatures, error) {
 					if !tc.featuresAvailable {
@@ -186,6 +196,9 @@ func TestGetInstrumentEstimateStatus(t *testing.T) {
 			}
 			if tc.name == "model unavailable" && !slices.Contains(info.MissingParameters, "ml_model_unavailable") {
 				t.Fatalf("missing model availability reason: %v", info.MissingParameters)
+			}
+			if tc.missingFX && !slices.Contains(info.MissingParameters, "fx_rate_USD") {
+				t.Fatalf("missing FX reason: %v", info.MissingParameters)
 			}
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/storage/models"
 	"gorm.io/gorm"
 )
@@ -33,7 +34,7 @@ func (s *Service) GetInstrument(
 		return InstrumentInfo{}, err
 	}
 	missingParams := make([]string, 0, 4)
-	date, err := s.Store.GetLatestMarketDate(ctx, source, marketDateCutoff(time.Now()))
+	date, err := s.Store.GetLatestCommonMarketDate(ctx, []uuid.UUID{instrument.ID}, source, marketDateCutoff(time.Now()))
 	if err == nil {
 		marketData, dataErr := s.Store.GetMarketData(ctx, instrument.ID, source, date)
 		if dataErr == nil {
@@ -49,10 +50,34 @@ func (s *Service) GetInstrument(
 			if marketData.Convexity == nil {
 				missingParams = append(missingParams, "convexity")
 			}
+			missingBeforeFX := len(missingParams)
+			rates := make(map[string]conversionRate)
+			missingRates := make(map[string]bool)
+			for _, item := range []struct {
+				name     string
+				currency *string
+			}{
+				{"price_currency", marketData.PriceCurrency}, {"accrued_int_currency", marketData.AccruedIntCurrency},
+			} {
+				if item.currency == nil || *item.currency == "" {
+					missingParams = append(missingParams, item.name)
+					continue
+				}
+				_, rateErr := s.conversionRate(ctx, *item.currency, date, rates)
+				if errors.Is(rateErr, ErrMissingFXRate) {
+					if !missingRates[*item.currency] {
+						missingParams = append(missingParams, "fx_rate_"+*item.currency)
+						missingRates[*item.currency] = true
+					}
+				} else if rateErr != nil {
+					return InstrumentInfo{}, rateErr
+				}
+			}
 			status := CalculationUnavailable
 			if len(missingParams) == 0 {
 				status = CalculationReady
-			} else if source == models.SourceMoex && s.ML != nil && marketData.PriceClean != nil && marketData.AccruedInt != nil {
+			} else if source == models.SourceMoex && s.ML != nil && len(missingParams) == missingBeforeFX &&
+				marketData.PriceClean != nil && marketData.AccruedInt != nil {
 				if store, ok := s.Store.(featureStore); ok {
 					features, featureErr := store.GetBondFeatures(ctx, instrument.ID, source, marketData.TradeDate)
 					if featureErr != nil && !errors.Is(featureErr, gorm.ErrRecordNotFound) {
@@ -73,7 +98,7 @@ func (s *Service) GetInstrument(
 					}
 				}
 			}
-			return InstrumentInfo{Instrument: instrument, MarketData: &marketData, ReadyForCalculation: len(missingParams) == 0, MissingParameters: missingParams, CalculationStatus: status}, nil
+			return InstrumentInfo{Instrument: instrument, MarketData: &marketData, ReadyForCalculation: status == CalculationReady, MissingParameters: missingParams, CalculationStatus: status}, nil
 		}
 		err = dataErr
 	}

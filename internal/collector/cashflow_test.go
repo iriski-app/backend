@@ -55,6 +55,32 @@ func TestBuildCashFlowsBuyback(t *testing.T) {
 	}
 }
 
+func TestBuildCashFlowsForForeignNominal(t *testing.T) {
+	settlement := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	instrument, data := testInstrument(), testMarketData()
+	data.FaceUnit, data.CurrencyID = "USD", "SUR"
+	schedule := moex.Bondization{
+		Coupons:       []moex.Coupon{{CouponDate: "2027-02-03", FaceUnit: "USD", Value: testFloat(40), ValueRUB: testFloat(3200)}},
+		Amortizations: []moex.Amortization{{AmortDate: "2027-02-03", FaceUnit: "USD", Value: testFloat(1000), ValueRUB: testFloat(80000)}},
+	}
+	flows, err := buildCashFlows(instrument, data, schedule, settlement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flows) != 2 || flows[0].Amount != 40 || flows[1].Amount != 1000 {
+		t.Fatalf("unexpected cash flows: %+v", flows)
+	}
+	schedule.Coupons[0].FaceUnit = "SUR"
+	if _, err := buildCashFlows(instrument, data, schedule, settlement); err == nil {
+		t.Fatal("accepted a coupon in the settlement currency")
+	}
+	schedule.Coupons[0].FaceUnit = "USD"
+	schedule.Amortizations[0].FaceUnit = ""
+	if _, err := buildCashFlows(instrument, data, schedule, settlement); err == nil {
+		t.Fatal("accepted a repayment without a currency")
+	}
+}
+
 func TestBuildCashFlowsRejectsIncompleteData(t *testing.T) {
 	settlement := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

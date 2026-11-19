@@ -107,6 +107,10 @@ func (s *Service) AnalyzeStress(ctx context.Context, sessionID uuid.UUID, result
 	req := &mlv1.AnalyzeScenarioRequest{RequestId: uuid.NewString(), CalculationId: result.CalculationID.String(), DataDate: result.AsOfDate.Format("2006-01-02"), ShiftBp: result.ShiftBP}
 	ids := make(map[string]bool, len(snapshots))
 	for _, p := range snapshots {
+		if p.PriceCurrency != nil && *p.PriceCurrency != "RUB" {
+			result.MLAnalysis.Reason = "outside_model_range"
+			return
+		}
 		if p.YTM == nil || p.FaceValue == nil || p.DurationMod == nil || !finiteStress(*p.YTM) || !finiteStress(*p.FaceValue) || *p.FaceValue <= 0 {
 			result.MLAnalysis.Reason = "missing_features"
 			return

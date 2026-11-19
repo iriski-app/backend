@@ -173,6 +173,9 @@ func TestNormalizeMarketData(t *testing.T) {
 		t.Fatalf("unexpected dates: %+v", marketData)
 	}
 	assertNumber(t, "price", marketData.PriceClean, 986.4)
+	if marketData.PriceCurrency == nil || *marketData.PriceCurrency != "RUB" || marketData.AccruedIntCurrency == nil || *marketData.AccruedIntCurrency != "RUB" {
+		t.Fatalf("unexpected currencies: %+v", marketData)
+	}
 	assertNumber(t, "accrued interest", marketData.AccruedInt, 18.76)
 	assertNumber(t, "duration", marketData.DurationMod, 1.6)
 	assertNumber(t, "yield percent", marketData.YTM, 25)

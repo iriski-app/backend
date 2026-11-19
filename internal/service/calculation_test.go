@@ -30,11 +30,11 @@ func TestCalculateSuccess(t *testing.T) {
 			marketData := map[uuid.UUID]models.MarketData{
 				instrumentIDs[0]: {
 					InstrumentID: instrumentIDs[0], TradeDate: tradeDate, Source: models.SourceMoex,
-					PriceClean: &price, AccruedInt: &accruedBuy, DurationMod: &durationBuy, Convexity: &convexity,
+					PriceClean: &price, AccruedInt: &accruedBuy, DurationMod: &durationBuy, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 				},
 				instrumentIDs[1]: {
 					InstrumentID: instrumentIDs[1], TradeDate: tradeDate, Source: models.SourceMoex,
-					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell, Convexity: &zeroConvexity,
+					PriceClean: &price, AccruedInt: &accruedSell, DurationMod: &durationSell, Convexity: &zeroConvexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 				},
 			}
 			var savedRun models.CalcRun
@@ -201,7 +201,7 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			price, accrued, duration, convexity := 1000.0, 10.0, 3.0, 12.5
-			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}
+			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}
 			switch tt.missing {
 			case "price":
 				data.PriceClean = nil
@@ -223,6 +223,11 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 			positions := []PositionInput{{InstrumentID: uuid.New(), Side: models.DealSideBuy, Quantity: 1}}
 			run, results, err := NewService(store).CalculatePositions(context.Background(), uuid.New(), positions)
 			assertCalculationError(t, run, results, err, tt.wantErr)
+			var detail *PositionDataError
+			fields := map[string]string{"price": "price_clean", "accrued": "accrued_int", "duration": "duration_mod", "convexity": "convexity"}
+			if !errors.As(err, &detail) || detail.InstrumentID != positions[0].InstrumentID || detail.Field != fields[tt.missing] {
+				t.Fatalf("wrong missing field context: %v", err)
+			}
 		})
 	}
 }
@@ -244,7 +249,7 @@ func TestCalculatePositionsStorageError(t *testing.T) {
 					if stage == "market data" {
 						return models.MarketData{}, wantErr
 					}
-					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
+					return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}, nil
 				},
 				SaveCalculationFunc: func(_ context.Context, run models.CalcRun, results []models.CalcResult) error {
 					saveCalls++
@@ -277,7 +282,7 @@ func TestCalculatePositionsInvalidSecondPosition(t *testing.T) {
 		},
 		GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
 			marketCalls++
-			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}, nil
+			return models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}, nil
 		},
 	}
 	positions := []PositionInput{

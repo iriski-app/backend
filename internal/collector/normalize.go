@@ -31,7 +31,7 @@ func NormalizeInstrument(data moex.Instrument) (models.Instrument, error) {
 	if strings.TrimSpace(data.SECID) == "" || !isinPattern.MatchString(isin) || name == "" {
 		return models.Instrument{}, fmt.Errorf("%w: instrument identifiers or name", ErrInvalidData)
 	}
-	if err := validateCurrency(data.FaceUnit, data.CurrencyID); err != nil {
+	if err := validateCurrency(data.BoardID, data.FaceUnit, data.CurrencyID); err != nil {
 		return models.Instrument{}, err
 	}
 	if err := validateInstrumentType(data.BondType, data.CouponDetails, data.FaceValueType); err != nil {
@@ -68,7 +68,7 @@ func NormalizeInstrument(data moex.Instrument) (models.Instrument, error) {
 		ISIN:           isin,
 		Name:           name,
 		InstrumentType: "bond",
-		Currency:       "RUB",
+		Currency:       normalizeCurrency(data.FaceUnit),
 		FaceValue:      *data.FaceValue,
 		CouponType:     couponType,
 		CouponFreq:     couponFreq,
@@ -91,7 +91,7 @@ func NormalizeMarketData(
 	if err != nil {
 		return models.MarketData{}, fmt.Errorf("%w: trade date", ErrInvalidData)
 	}
-	if err := validateCurrency(data.FaceUnit, data.CurrencyID); err != nil {
+	if err := validateCurrency(data.BoardID, data.FaceUnit, data.CurrencyID); err != nil {
 		return models.MarketData{}, err
 	}
 	if err := validateInstrumentType(data.BondType, data.CouponDetails, data.FaceValueType); err != nil {
@@ -104,13 +104,18 @@ func NormalizeMarketData(
 		return models.MarketData{}, ErrNoTrades
 	}
 	numTrades := *data.NumTrades
+	// TQCB quotes clean prices as a percentage of nominal and publishes ACCINT in the settlement currency.
+	priceCurrency := normalizeCurrency(data.FaceUnit)
+	accruedIntCurrency := normalizeCurrency(data.CurrencyID)
 	marketData := models.MarketData{
-		InstrumentID: instrumentID,
-		TradeDate:    tradeDate,
-		Source:       models.SourceMoex,
-		PriceType:    "trade",
-		NumTrades:    &numTrades,
-		LoadedAt:     loadedAt.UTC(),
+		InstrumentID:       instrumentID,
+		TradeDate:          tradeDate,
+		Source:             models.SourceMoex,
+		PriceType:          "trade",
+		PriceCurrency:      &priceCurrency,
+		AccruedIntCurrency: &accruedIntCurrency,
+		NumTrades:          &numTrades,
+		LoadedAt:           loadedAt.UTC(),
 	}
 	if data.Close != nil && data.FaceValue != nil && validNumber(*data.Close) && validNumber(*data.FaceValue) && *data.Close > 0 && *data.FaceValue > 0 {
 		priceClean := *data.Close / 100 * *data.FaceValue
@@ -135,17 +140,27 @@ func NormalizeMarketData(
 	return marketData, nil
 }
 
-func validateCurrency(faceUnit string, currencyID string) error {
-	for _, currency := range []string{faceUnit, currencyID} {
-		switch strings.ToUpper(strings.TrimSpace(currency)) {
-		case "SUR", "RUB":
-		case "":
-			return fmt.Errorf("%w: currency", ErrInvalidData)
-		default:
-			return fmt.Errorf("%w: %s", ErrUnsupportedCurrency, currency)
-		}
+func validateCurrency(board, faceUnit, currencyID string) error {
+	nominal := normalizeCurrency(faceUnit)
+	settlement := normalizeCurrency(currencyID)
+	if nominal == "" || settlement == "" {
+		return fmt.Errorf("%w: currency", ErrInvalidData)
 	}
-	return nil
+	if nominal == settlement && (nominal == "RUB" || nominal == "CNY") {
+		return nil
+	}
+	if board == "TQCB" && settlement == "RUB" && (nominal == "USD" || nominal == "EUR") {
+		return nil
+	}
+	return fmt.Errorf("%w: %s nominal, %s settlement on %s", ErrUnsupportedCurrency, nominal, settlement, board)
+}
+
+func normalizeCurrency(currency string) string {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "SUR" {
+		return "RUB"
+	}
+	return currency
 }
 
 func validateInstrumentType(bondType string, couponDetails string, faceValueType string) error {
@@ -155,7 +170,10 @@ func validateInstrumentType(bondType string, couponDetails string, faceValueType
 	if strings.TrimSpace(bondType) == "Облигация с плавающим купоном" {
 		return nil
 	}
-	if strings.TrimSpace(bondType) != "Облигация с фиксированным (известным) купоном" {
+	if strings.TrimSpace(bondType) == "Валютная облигация" && strings.TrimSpace(couponDetails) != "Фиксированный с известными купонами" {
+		return ErrUnsupportedInstrument
+	}
+	if strings.TrimSpace(bondType) != "Облигация с фиксированным (известным) купоном" && strings.TrimSpace(bondType) != "Валютная облигация" {
 		return ErrUnsupportedInstrument
 	}
 	details := strings.TrimSpace(couponDetails)

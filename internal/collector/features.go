@@ -38,6 +38,10 @@ func normalizeBondFeatures(data moex.MarketData, market models.MarketData) model
 		features.CouponType = new("floating")
 	case "Облигация с фиксированным (известным) купоном":
 		features.CouponType = new("fixed")
+	case "Валютная облигация":
+		if strings.TrimSpace(data.CouponDetails) == "Фиксированный с известными купонами" {
+			features.CouponType = new("fixed")
+		}
 	}
 	if data.CouponPercent != nil && validNumber(*data.CouponPercent) && *data.CouponPercent >= 0 {
 		features.CouponPercent = data.CouponPercent
