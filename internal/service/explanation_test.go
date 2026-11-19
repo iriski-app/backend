@@ -17,14 +17,14 @@ func (c *explanationTestClient) EstimateMissingMetric(context.Context, *mlv1.Est
 	return nil, nil
 }
 func (c *explanationTestClient) ExplainCalculation(_ context.Context, r *mlv1.ExplainCalculationRequest) (*mlv1.ExplainCalculationResponse, error) {
-	if r.TotalRub != "0.200000" || len(r.Positions) != 2 {
+	if r.TotalRub != "0.19" || len(r.Positions) != 2 || r.Positions[0].ValueRub != "-0.02" || r.Positions[1].ValueRub != "0.21" {
 		return nil, errors.New("invalid facts")
 	}
 	return &mlv1.ExplainCalculationResponse{RequestId: r.RequestId, CalculationId: r.CalculationId, Text: "DV01", ModelVersion: "v1", Verified: c.verified, FactIds: []string{"total_rub"}}, nil
 }
 func TestExplainDV01(t *testing.T) {
 	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
-	a, b, total := 0.1, 0.1, 0.2000004
+	a, b, total := -0.024711, 0.207735, 0.1830244
 	positions := []models.CalcResult{{ID: uuid.New(), Side: models.DealSideBuy, DV01: &a}, {ID: uuid.New(), Side: models.DealSideSell, DV01: &b}}
 	saved := 0
 	store := &fakeStore{GetCalculationFunc: func(context.Context, uuid.UUID, uuid.UUID) (models.CalcRun, []models.CalcResult, error) {

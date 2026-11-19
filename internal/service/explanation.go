@@ -38,21 +38,22 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 		return models.LLMExplanation{}, ErrMLUnavailable
 	}
 	req := &mlv1.ExplainCalculationRequest{RequestId: uuid.NewString(), CalculationId: calcID.String(), CalculationKind: mlv1.CalculationKind_CALCULATION_KIND_DV01, Currency: "RUB", DataAsOf: run.AsOfDate.Format("2006-01-02")}
-	var total int64
+	var totalMicros, totalCents int64
 	for _, p := range positions {
 		if p.DV01 == nil || !finiteStress(*p.DV01) || math.Abs(*p.DV01) > 1e9 || (p.Side != models.DealSideBuy && p.Side != models.DealSideSell) {
 			return models.LLMExplanation{}, fmt.Errorf("%w: invalid contribution", ErrMissingParameter)
 		}
-		units := int64(math.Round(*p.DV01 * 1e6))
-		total += units
+		totalMicros += int64(math.Round(*p.DV01 * 1e6))
+		cents := int64(math.Round(*p.DV01 * 100))
+		totalCents += cents
 		estimated := p.DurationEstimate != nil || p.ConvexityEstimate != nil
 		req.Estimated = req.Estimated || estimated
-		req.Positions = append(req.Positions, &mlv1.ExplanationPosition{PositionId: p.ID.String(), Side: string(p.Side), ValueRub: formatMicros(units), Estimated: estimated})
+		req.Positions = append(req.Positions, &mlv1.ExplanationPosition{PositionId: p.ID.String(), Side: string(p.Side), ValueRub: formatCents(cents), Estimated: estimated})
 	}
-	if math.Abs(float64(total)/1e6-*run.TotalDV01Rub) > float64(len(positions)+1)*0.0000005+1e-9 {
+	if math.Abs(float64(totalMicros)/1e6-*run.TotalDV01Rub) > float64(len(positions)+1)*0.0000005+1e-9 {
 		return models.LLMExplanation{}, fmt.Errorf("%w: inconsistent contributions", ErrMissingParameter)
 	}
-	req.TotalRub = formatMicros(total)
+	req.TotalRub = formatCents(totalCents)
 	response, err := client.ExplainCalculation(ctx, req)
 	if err != nil {
 		return models.LLMExplanation{}, fmt.Errorf("%w: %w", ErrMLUnavailable, err)
@@ -71,11 +72,11 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 	return explanation, nil
 }
 
-func formatMicros(v int64) string {
+func formatCents(v int64) string {
 	sign := ""
 	if v < 0 {
 		sign = "-"
 		v = -v
 	}
-	return sign + strconv.FormatInt(v/1000000, 10) + "." + fmt.Sprintf("%06d", v%1000000)
+	return sign + strconv.FormatInt(v/100, 10) + "." + fmt.Sprintf("%02d", v%100)
 }
