@@ -38,7 +38,7 @@ func TestCalculationUsesMLOnlyForMissingMetrics(t *testing.T) {
 			if got != id || source != models.SourceMoex || !day.Equal(date) {
 				t.Fatal("incorrect snapshot")
 			}
-			return models.BondFeatures{SettlementDate: &settlement, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact}, nil
+			return models.BondFeatures{SettlementDate: &settlement, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact, Currency: new("RUB"), FaceValue: new(1000.0)}, nil
 		},
 		SaveCalculationFunc: func(_ context.Context, _ models.CalcRun, results []models.CalcResult) error {
 			saved = results
@@ -71,7 +71,8 @@ func TestEstimateRejectsInvalidResponse(t *testing.T) {
 	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
 	exact := true
 	svc := NewService(&fakeStore{GetBondFeaturesFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.BondFeatures, error) {
-		return models.BondFeatures{SettlementDate: &date, YieldDate: new(date.AddDate(1, 0, 0)), CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact}, nil
+		maturity := date.AddDate(1, 0, 0)
+		return models.BondFeatures{SettlementDate: &date, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact, Currency: new("RUB"), FaceValue: new(1000.0)}, nil
 	}})
 	svc.ML = estimateFunc(func(_ context.Context, r *mlv1.EstimateMissingMetricRequest) (*mlv1.EstimateMissingMetricResponse, error) {
 		return &mlv1.EstimateMissingMetricResponse{RequestId: r.RequestId, InstrumentId: r.InstrumentId, AsOfDate: r.AsOfDate, Metric: r.Metric, Value: math.NaN(), Source: mlv1.MetricSource_METRIC_SOURCE_CATBOOST, ModelVersion: "v1"}, nil
@@ -87,7 +88,8 @@ func TestEstimateUnavailableAndInexactCalendar(t *testing.T) {
 	for _, exact := range []bool{false, true} {
 		t.Run(fmt.Sprint(exact), func(t *testing.T) {
 			svc := NewService(&fakeStore{GetBondFeaturesFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.BondFeatures, error) {
-				return models.BondFeatures{SettlementDate: &date, YieldDate: new(date.AddDate(1, 0, 0)), CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact}, nil
+				maturity := date.AddDate(1, 0, 0)
+				return models.BondFeatures{SettlementDate: &date, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &exact, Currency: new("RUB"), FaceValue: new(1000.0)}, nil
 			}})
 			calls := 0
 			svc.ML = estimateFunc(func(context.Context, *mlv1.EstimateMissingMetricRequest) (*mlv1.EstimateMissingMetricResponse, error) {
@@ -105,24 +107,28 @@ func TestEstimateUnavailableAndInexactCalendar(t *testing.T) {
 	}
 }
 
-func TestEligibleForEstimate(t *testing.T) {
+func TestMissingEstimateFeatures(t *testing.T) {
 	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
-	f := models.BondFeatures{SettlementDate: &date, YieldDate: new(date.AddDate(1, 0, 0)), CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: new(true)}
-	if !eligibleForEstimate(f) {
-		t.Fatal("eligible bond rejected")
+	maturity := date.AddDate(1, 0, 0)
+	valid := models.BondFeatures{SettlementDate: &date, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: new(true), Currency: new("RUB"), FaceValue: new(1000.0)}
+	if missing := missingEstimateFeatures(valid); len(missing) != 0 {
+		t.Fatalf("valid bond rejected: %v", missing)
 	}
-	f.YieldDate = nil
-	if eligibleForEstimate(f) {
-		t.Fatal("missing horizon accepted")
-	}
-	f.YieldDate = new(date.AddDate(1, 0, 0))
-	f.CouponType = new("floating")
-	if eligibleForEstimate(f) {
-		t.Fatal("floating coupon accepted")
-	}
-	f.CouponType = new("fixed")
-	f.IsStructured = new(true)
-	if eligibleForEstimate(f) {
-		t.Fatal("structured bond accepted")
+	for _, tc := range []struct {
+		field  string
+		change func(*models.BondFeatures)
+	}{
+		{"ml_maturity_date", func(f *models.BondFeatures) { f.MaturityDate = nil }},
+		{"ml_face_value", func(f *models.BondFeatures) { f.FaceValue = new(0.0) }},
+		{"ml_currency", func(f *models.BondFeatures) { f.Currency = new(" ") }},
+		{"ml_yield_date", func(f *models.BondFeatures) { f.YieldDate = nil }},
+		{"ml_coupon_type", func(f *models.BondFeatures) { f.CouponType = new("floating") }},
+		{"ml_structure", func(f *models.BondFeatures) { f.IsStructured = new(true) }},
+	} {
+		features := valid
+		tc.change(&features)
+		if missing := missingEstimateFeatures(features); len(missing) != 1 || missing[0] != tc.field {
+			t.Errorf("want %s, got %v", tc.field, missing)
+		}
 	}
 }

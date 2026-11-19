@@ -58,8 +58,14 @@ func (s *Service) GetInstrument(
 					if featureErr != nil && !errors.Is(featureErr, gorm.ErrRecordNotFound) {
 						return InstrumentInfo{}, featureErr
 					}
-					if featureErr == nil && eligibleForEstimate(features) {
-						status = CalculationEstimatePossible
+					if featureErr == nil {
+						missing := missingEstimateFeatures(features)
+						if len(missing) == 0 {
+							status = CalculationEstimatePossible
+						}
+						missingParams = append(missingParams, missing...)
+					} else {
+						missingParams = append(missingParams, "ml_features")
 					}
 				}
 			}

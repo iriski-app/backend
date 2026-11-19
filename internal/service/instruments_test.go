@@ -170,7 +170,8 @@ func TestGetInstrumentEstimateStatus(t *testing.T) {
 					if !tc.featuresAvailable {
 						return models.BondFeatures{}, gorm.ErrRecordNotFound
 					}
-					return models.BondFeatures{SettlementDate: &date, YieldDate: new(date.AddDate(1, 0, 0)), CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &tc.exact}, nil
+					maturity := date.AddDate(1, 0, 0)
+					return models.BondFeatures{SettlementDate: &date, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &tc.exact, Currency: new("RUB"), FaceValue: new(1000.0)}, nil
 				},
 			}
 			svc := NewService(store)

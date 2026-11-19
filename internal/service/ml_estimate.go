@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,8 +46,8 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 	if err != nil {
 		return 0, "", fmt.Errorf("load ML features: %w", err)
 	}
-	if !eligibleForEstimate(f) {
-		return 0, "", fmt.Errorf("%w: bond is not eligible for ML estimation", ErrMissingParameter)
+	if missing := missingEstimateFeatures(f); len(missing) != 0 {
+		return 0, "", fmt.Errorf("%w: %s", ErrMissingParameter, strings.Join(missing, ", "))
 	}
 	features := &mlv1.BondFeatures{
 		YearsToMaturity: yearsUntil(f.SettlementDate, f.MaturityDate), YearsToYieldDate: yearsUntil(f.SettlementDate, f.YieldDate),
@@ -54,12 +55,8 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 		CouponValue: f.CouponValue, FaceValue: f.FaceValue, Ytm: f.YTM, HasBuyback: f.HasBuyback,
 		IsGovernment: f.IsGovernment, IsStructured: f.IsStructured, SettlementCalendarExact: true,
 	}
-	if f.CouponType != nil {
-		features.CouponTypeAsof = *f.CouponType
-	}
-	if f.Currency != nil {
-		features.CurrencyAsof = *f.Currency
-	}
+	features.CouponTypeAsof = *f.CouponType
+	features.CurrencyAsof = *f.Currency
 	req := &mlv1.EstimateMissingMetricRequest{RequestId: uuid.NewString(), InstrumentId: market.InstrumentID.String(), AsOfDate: market.TradeDate.Format("2006-01-02"), Metric: kind, Features: features}
 	resp, err := s.ML.EstimateMissingMetric(ctx, req)
 	if err != nil {
@@ -75,11 +72,30 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 	return resp.Value, string(metadata), nil
 }
 
-func eligibleForEstimate(f models.BondFeatures) bool {
-	return f.SettlementDate != nil && f.SettlementCalendarExact != nil && *f.SettlementCalendarExact &&
-		f.YieldDate != nil && f.YieldDate.After(*f.SettlementDate) &&
-		f.CouponType != nil && (*f.CouponType == "fixed" || *f.CouponType == "zero") &&
-		f.IsStructured != nil && !*f.IsStructured
+func missingEstimateFeatures(f models.BondFeatures) []string {
+	var missing []string
+	if f.SettlementDate == nil || f.SettlementCalendarExact == nil || !*f.SettlementCalendarExact {
+		missing = append(missing, "ml_settlement_calendar")
+	}
+	if f.MaturityDate == nil || (f.SettlementDate != nil && !f.MaturityDate.After(*f.SettlementDate)) {
+		missing = append(missing, "ml_maturity_date")
+	}
+	if f.YieldDate == nil || (f.SettlementDate != nil && !f.YieldDate.After(*f.SettlementDate)) {
+		missing = append(missing, "ml_yield_date")
+	}
+	if f.CouponType == nil || (*f.CouponType != "fixed" && *f.CouponType != "zero") {
+		missing = append(missing, "ml_coupon_type")
+	}
+	if f.IsStructured == nil || *f.IsStructured {
+		missing = append(missing, "ml_structure")
+	}
+	if f.FaceValue == nil || !validEstimate(*f.FaceValue) || *f.FaceValue == 0 {
+		missing = append(missing, "ml_face_value")
+	}
+	if f.Currency == nil || strings.TrimSpace(*f.Currency) == "" {
+		missing = append(missing, "ml_currency")
+	}
+	return missing
 }
 
 func validEstimate(value float64) bool {
