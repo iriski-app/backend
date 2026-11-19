@@ -31,7 +31,7 @@ func NormalizeInstrument(data moex.Instrument) (models.Instrument, error) {
 	if strings.TrimSpace(data.SECID) == "" || !isinPattern.MatchString(isin) || name == "" {
 		return models.Instrument{}, fmt.Errorf("%w: instrument identifiers or name", ErrInvalidData)
 	}
-	if err := validateCurrency(data.FaceUnit, data.CurrencyID); err != nil {
+	if err := validateCurrency(data.BoardID, data.FaceUnit, data.CurrencyID); err != nil {
 		return models.Instrument{}, err
 	}
 	if err := validateInstrumentType(data.BondType, data.CouponDetails, data.FaceValueType); err != nil {
@@ -91,7 +91,7 @@ func NormalizeMarketData(
 	if err != nil {
 		return models.MarketData{}, fmt.Errorf("%w: trade date", ErrInvalidData)
 	}
-	if err := validateCurrency(data.FaceUnit, data.CurrencyID); err != nil {
+	if err := validateCurrency(data.BoardID, data.FaceUnit, data.CurrencyID); err != nil {
 		return models.MarketData{}, err
 	}
 	if err := validateInstrumentType(data.BondType, data.CouponDetails, data.FaceValueType); err != nil {
@@ -104,14 +104,16 @@ func NormalizeMarketData(
 		return models.MarketData{}, ErrNoTrades
 	}
 	numTrades := *data.NumTrades
-	currency := normalizeCurrency(data.FaceUnit)
+	// TQCB quotes clean prices as a percentage of nominal and publishes ACCINT in the settlement currency.
+	priceCurrency := normalizeCurrency(data.FaceUnit)
+	accruedIntCurrency := normalizeCurrency(data.CurrencyID)
 	marketData := models.MarketData{
 		InstrumentID:       instrumentID,
 		TradeDate:          tradeDate,
 		Source:             models.SourceMoex,
 		PriceType:          "trade",
-		PriceCurrency:      &currency,
-		AccruedIntCurrency: &currency,
+		PriceCurrency:      &priceCurrency,
+		AccruedIntCurrency: &accruedIntCurrency,
 		NumTrades:          &numTrades,
 		LoadedAt:           loadedAt.UTC(),
 	}
@@ -138,20 +140,19 @@ func NormalizeMarketData(
 	return marketData, nil
 }
 
-func validateCurrency(faceUnit string, currencyID string) error {
-	for _, currency := range []string{faceUnit, currencyID} {
-		switch normalizeCurrency(currency) {
-		case "RUB", "CNY":
-		case "":
-			return fmt.Errorf("%w: currency", ErrInvalidData)
-		default:
-			return fmt.Errorf("%w: %s", ErrUnsupportedCurrency, currency)
-		}
+func validateCurrency(board, faceUnit, currencyID string) error {
+	nominal := normalizeCurrency(faceUnit)
+	settlement := normalizeCurrency(currencyID)
+	if nominal == "" || settlement == "" {
+		return fmt.Errorf("%w: currency", ErrInvalidData)
 	}
-	if normalizeCurrency(faceUnit) != normalizeCurrency(currencyID) {
-		return fmt.Errorf("%w: different nominal and settlement currencies", ErrUnsupportedCurrency)
+	if nominal == settlement && (nominal == "RUB" || nominal == "CNY") {
+		return nil
 	}
-	return nil
+	if board == "TQCB" && settlement == "RUB" && (nominal == "USD" || nominal == "EUR") {
+		return nil
+	}
+	return fmt.Errorf("%w: %s nominal, %s settlement on %s", ErrUnsupportedCurrency, nominal, settlement, board)
 }
 
 func normalizeCurrency(currency string) string {

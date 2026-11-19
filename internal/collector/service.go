@@ -67,7 +67,7 @@ func (s *Service) calculateConvexities(ctx context.Context, records []marketData
 	calendars := make(map[string]map[int]settlementCalendar)
 	for _, record := range records {
 		if record.marketData != nil && counts[record.instrument.ISIN] == 1 && record.instrument.CouponType != "floating" && record.sourceMarketData.YieldClose != nil && validNumber(*record.sourceMarketData.YieldClose) && *record.sourceMarketData.YieldClose > -100 {
-			key := settlementKey{currency: record.instrument.Currency, board: record.sourceMarketData.BoardID}
+			key := settlementKey{currency: normalizeCurrency(record.sourceMarketData.CurrencyID), board: record.sourceMarketData.BoardID}
 			if _, ok := settlements[key]; !ok {
 				if calendars[key.currency] == nil {
 					calendars[key.currency] = make(map[int]settlementCalendar)
@@ -94,7 +94,8 @@ func (s *Service) calculateConvexities(ctx context.Context, records []marketData
 			defer wg.Done()
 			for index := range jobs {
 				record := records[index]
-				settlement := settlements[settlementKey{currency: record.instrument.Currency, board: record.sourceMarketData.BoardID}]
+				key := settlementKey{currency: normalizeCurrency(record.sourceMarketData.CurrencyID), board: record.sourceMarketData.BoardID}
+				settlement := settlements[key]
 				calculator := convexityCalculator{client: s.Client}
 				value, err := calculator.calculate(ctx, record.sourceInstrument, record.sourceMarketData, settlement.date, settlement.err)
 				select {
