@@ -6,13 +6,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"gorm.io/gorm"
 )
 
 type fakeStore struct {
+	SaveExplanationFunc      func(context.Context, models.LLMExplanation) error
 	GetLatestMarketDateFunc  func(context.Context, models.Source, time.Time) (time.Time, error)
 	GetInstrumentFunc        func(ctx context.Context, isin string) (models.Instrument, error)
 	GetInstrumentByIDFunc    func(ctx context.Context, id uuid.UUID) (models.Instrument, error)
 	GetMarketDataFunc        func(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.MarketData, error)
+	GetBondFeaturesFunc      func(ctx context.Context, instrumentID uuid.UUID, source models.Source, date time.Time) (models.BondFeatures, error)
 	GetFXRateFunc            func(context.Context, string, string, time.Time) (models.FXRate, error)
 	SaveCalculationFunc      func(ctx context.Context, calcRun models.CalcRun, calcResults []models.CalcResult) error
 	GetCalculationFunc       func(ctx context.Context, sessionID uuid.UUID, calcID uuid.UUID) (models.CalcRun, []models.CalcResult, error)
@@ -24,7 +27,21 @@ type fakeStore struct {
 	UpdateBasketItemFunc     func(ctx context.Context, id uuid.UUID, params map[string]any) error
 }
 
+func (s *fakeStore) SaveExplanation(ctx context.Context, value models.LLMExplanation) error {
+	if s.SaveExplanationFunc == nil {
+		panic("unexpected SaveExplanation")
+	}
+	return s.SaveExplanationFunc(ctx, value)
+}
+
 var _ Storage = (*fakeStore)(nil)
+
+func (s *fakeStore) GetBondFeatures(ctx context.Context, id uuid.UUID, source models.Source, date time.Time) (models.BondFeatures, error) {
+	if s.GetBondFeaturesFunc == nil {
+		return models.BondFeatures{}, gorm.ErrRecordNotFound
+	}
+	return s.GetBondFeaturesFunc(ctx, id, source, date)
+}
 
 func (s *fakeStore) GetLatestCommonMarketDate(ctx context.Context, ids []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
 	return s.GetLatestMarketDate(ctx, source, cutoff)

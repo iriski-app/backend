@@ -201,7 +201,7 @@ func TestCalculatePositionsMissingData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			price, accrued, duration, convexity := 1000.0, 10.0, 3.0, 12.5
-			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity}
+			data := models.MarketData{PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB")}
 			switch tt.missing {
 			case "price":
 				data.PriceClean = nil

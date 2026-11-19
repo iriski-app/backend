@@ -56,6 +56,7 @@ func (h *Handler) GetInstrument(w http.ResponseWriter, r *http.Request) {
 		CouponRate:          info.Instrument.CouponRate,
 		ReadyForCalculation: info.ReadyForCalculation,
 		MissingParameters:   info.MissingParameters,
+		CalculationStatus:   info.CalculationStatus,
 	}
 
 	if info.Instrument.MaturityDate != nil {

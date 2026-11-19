@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,10 +34,12 @@ type GetInstrumentResponse struct {
 	LoadedAt            *time.Time `json:"loaded_at"`
 	ReadyForCalculation bool       `json:"ready_for_calculation"`
 	MissingParameters   []string   `json:"missing_parameters"`
+	CalculationStatus   string     `json:"calculation_status"`
 }
 
 type CalculationRequest struct {
-	Positions []Position `json:"positions"`
+	Positions  []Position `json:"positions"`
+	Incomplete *bool      `json:"incomplete,omitempty"`
 }
 
 type Position struct {
@@ -50,6 +53,7 @@ type CalculationResponse struct {
 	Status       models.CalcStatus             `json:"status"`
 	AsOfDate     time.Time                     `json:"as_of_date"`
 	TotalDV01Rub *float64                      `json:"total_dv01_rub"`
+	Incomplete   *bool                         `json:"incomplete,omitempty"`
 	Positions    []CalculationPositionResponse `json:"positions"`
 }
 
@@ -72,4 +76,6 @@ type CalculationPositionResponse struct {
 	DV01               *float64        `json:"dv01"`
 	Source             models.Source   `json:"source"`
 	MarketDate         *time.Time      `json:"market_date"`
+	DurationEstimate   json.RawMessage `json:"duration_estimate,omitempty"`
+	ConvexityEstimate  json.RawMessage `json:"convexity_estimate,omitempty"`
 }

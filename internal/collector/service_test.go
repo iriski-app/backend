@@ -58,7 +58,7 @@ func TestRunSuccess(t *testing.T) {
 			t.Fatalf("convexity was not calculated: %+v", record.marketData)
 		}
 	}
-	if client.calendarCalls != 1 || len(client.bondizationCalls) != 2 {
+	if client.calendarCalls != 1 || len(client.bondizationCalls) != 3 {
 		t.Fatalf("unexpected convexity requests: calendars %d, bonds %v", client.calendarCalls, client.bondizationCalls)
 	}
 	if store.saved[1].marketData.DurationMod != nil {
@@ -104,7 +104,8 @@ func TestConvexityWorkersLimitAndCancellation(t *testing.T) {
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
-		for range service.calculateConvexities(ctx, records, counts, collectorTradeDate()) {
+		settlements := map[settlementKey]settlementResult{records[0].settlementKey(): {date: collectorTradeDate()}}
+		for range service.calculateConvexities(ctx, records, counts, settlements) {
 		}
 		close(done)
 	}()
@@ -154,7 +155,11 @@ func TestRunFloatingCoupon(t *testing.T) {
 				t.Fatalf("result: %+v, error: %v", result, err)
 			}
 			saved := store.saved[0]
-			if saved.instrument.CouponType != "floating" || len(client.bondizationCalls) != 0 || client.calendarCalls != 0 {
+			wantCalls := 0
+			if tt.wantDuration == nil {
+				wantCalls = 1
+			}
+			if saved.instrument.CouponType != "floating" || len(client.bondizationCalls) != wantCalls || client.calendarCalls != 1 {
 				t.Fatalf("unexpected instrument or requests: %+v", saved.instrument)
 			}
 			assertNumber(t, "convexity", saved.marketData.Convexity, 0)
@@ -578,6 +583,10 @@ func (s *collectorStoreFake) SaveMarketData(ctx context.Context, instrument mode
 		s.onSave()
 	}
 	return nil
+}
+
+func (s *collectorStoreFake) SaveMarketDataWithFeatures(ctx context.Context, instrument models.Instrument, data models.MarketData, features models.BondFeatures) error {
+	return s.SaveMarketData(ctx, instrument, data)
 }
 
 func (s *collectorStoreFake) UpsertInstrument(ctx context.Context, instrument models.Instrument) (models.Instrument, error) {

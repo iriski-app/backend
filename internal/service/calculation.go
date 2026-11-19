@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/risk"
 	"github.com/iriski-app/backend/internal/storage/models"
 	"gorm.io/gorm"
@@ -95,10 +96,20 @@ func (s *Service) CalculatePositions(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	positions []PositionInput) (models.CalcRun, []models.CalcResult, error) {
+	return s.CalculatePositionsWithCoverage(ctx, sessionID, positions, nil)
+}
+
+func (s *Service) CalculatePositionsWithCoverage(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	positions []PositionInput,
+	incomplete *bool) (models.CalcRun, []models.CalcResult, error) {
 	if len(positions) == 0 {
 		return models.CalcRun{}, []models.CalcResult{}, fmt.Errorf(
 			"%w: must be at least one position", ErrInvalidParameter)
 	}
+	mlCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	calcRunID := uuid.New()
 	ids := make([]uuid.UUID, len(positions))
 	for i, position := range positions {
@@ -114,6 +125,7 @@ func (s *Service) CalculatePositions(
 		AsOfDate:     asOfDate,
 		Status:       models.CalcStatusRunning,
 		TotalDV01Rub: nil,
+		Incomplete:   incomplete,
 		CreatedAt:    time.Now(),
 	}
 	riskPositions := make([]risk.Position, len(positions))
@@ -137,17 +149,11 @@ func (s *Service) CalculatePositions(
 		if err != nil {
 			return models.CalcRun{}, []models.CalcResult{}, err
 		}
-		if curMarketData.DurationMod == nil {
-			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "duration_mod", AsOfDate: asOfDate, Cause: errors.Join(ErrMissingParameter, ErrPlaceHolder)}
-		}
 		if curMarketData.AccruedInt == nil {
 			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "accrued_int", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
 		if curMarketData.PriceClean == nil {
 			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_clean", AsOfDate: asOfDate, Cause: ErrMissingParameter}
-		}
-		if curMarketData.Convexity == nil {
-			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "convexity", AsOfDate: asOfDate, Cause: ErrMissingParameter}
 		}
 		if curMarketData.PriceCurrency == nil || *curMarketData.PriceCurrency == "" {
 			return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "price_currency", AsOfDate: asOfDate, Cause: ErrMissingParameter}
@@ -166,6 +172,21 @@ func (s *Service) CalculatePositions(
 		marketValue := float64(position.Quantity) * (*curMarketData.PriceClean*priceFX.value + *curMarketData.AccruedInt*accruedFX.value)
 		if math.IsNaN(marketValue) || math.IsInf(marketValue, 0) {
 			return models.CalcRun{}, nil, fmt.Errorf("%w: invalid market value", ErrInvalidParameter)
+		}
+		var durationEstimate, convexityEstimate *string
+		if curMarketData.DurationMod == nil {
+			value, metadata, err := s.estimateMetric(mlCtx, curMarketData, mlv1.MetricKind_METRIC_KIND_DURATION_MOD)
+			if err != nil {
+				return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "duration_mod", AsOfDate: asOfDate, Cause: err}
+			}
+			curMarketData.DurationMod, durationEstimate = &value, &metadata
+		}
+		if curMarketData.Convexity == nil {
+			value, metadata, err := s.estimateMetric(mlCtx, curMarketData, mlv1.MetricKind_METRIC_KIND_CONVEXITY)
+			if err != nil {
+				return models.CalcRun{}, nil, &PositionDataError{InstrumentID: curInstrument.ID, ISIN: curInstrument.ISIN, Field: "convexity", AsOfDate: asOfDate, Cause: err}
+			}
+			curMarketData.Convexity, convexityEstimate = &value, &metadata
 		}
 		riskPositions[i] = risk.Position{
 			MarketValue: marketValue,
@@ -195,6 +216,21 @@ func (s *Service) CalculatePositions(
 			DurationMod:        curMarketData.DurationMod,
 			Convexity:          curMarketData.Convexity,
 			DataSource:         models.SourceMoex,
+			DurationEstimate:   durationEstimate,
+			ConvexityEstimate:  convexityEstimate,
+			YTM:                curMarketData.YTM,
+			ISIN:               curInstrument.ISIN,
+			CouponType:         curInstrument.CouponType,
+			CouponFreq:         curInstrument.CouponFreq,
+		}
+		if store, ok := s.Store.(featureStore); ok {
+			features, featureErr := store.GetBondFeatures(ctx, curInstrument.ID, curMarketData.Source, curMarketData.TradeDate)
+			if featureErr != nil && !errors.Is(featureErr, gorm.ErrRecordNotFound) {
+				return models.CalcRun{}, nil, featureErr
+			}
+			if featureErr == nil {
+				calcResults[i].FaceValue = features.FaceValue
+			}
 		}
 	}
 

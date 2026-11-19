@@ -34,4 +34,11 @@ type CalcResult struct {
 	DV01Low            *float64   `gorm:"type:numeric(20,6)"`
 	DV01High           *float64   `gorm:"type:numeric(20,6)"`
 	DataSource         Source     `gorm:"type:text"`
+	DurationEstimate   *string    `gorm:"type:jsonb"`
+	ConvexityEstimate  *string    `gorm:"type:jsonb"`
+	YTM                *float64   `gorm:"type:numeric(14,6)"`
+	FaceValue          *float64   `gorm:"type:numeric(18,6)"`
+	ISIN               string     `gorm:"type:char(12)"`
+	CouponType         string     `gorm:"type:text"`
+	CouponFreq         *int       `gorm:"type:smallint"`
 }

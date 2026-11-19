@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/storage/models"
 )
 
@@ -28,6 +29,11 @@ type Storage interface {
 
 type Service struct {
 	Store Storage
+	ML    MetricEstimator
+}
+
+type MetricEstimator interface {
+	EstimateMissingMetric(context.Context, *mlv1.EstimateMissingMetricRequest) (*mlv1.EstimateMissingMetricResponse, error)
 }
 
 func NewService(store Storage) *Service {

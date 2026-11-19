@@ -1,14 +1,18 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/service"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
@@ -62,7 +66,8 @@ func (h *Handler) GetCalculation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
 	cookie, err := r.Cookie("session_id")
 	var sessionId uuid.UUID
 
@@ -122,10 +127,11 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 			Quantity:     position.Quantity,
 		}
 	}
-	calcRun, calcResults, err := h.Service.CalculatePositions(
+	calcRun, calcResults, err := h.Service.CalculatePositionsWithCoverage(
 		ctx,
 		sessionId,
 		positions,
+		req.Incomplete,
 	)
 	if err != nil {
 		var positionError *service.PositionDataError
@@ -138,6 +144,8 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 			details = positionDetails
 		}
 		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
+			writeError(w, http.StatusGatewayTimeout, "calculation_timeout", "Расчёт занял слишком много времени", nil)
 		case errors.Is(err, service.ErrInvalidParameter):
 			writeError(
 				w,
@@ -158,6 +166,12 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 				"Недостаточно рыночных данных для расчёта",
 				details,
 			)
+
+		case errors.Is(err, service.ErrMLUnsupportedInput):
+			writeError(w, http.StatusUnprocessableEntity, "ml_unsupported_input", "Бумага или её параметры вне области применения ML-модели", details)
+		case errors.Is(err, service.ErrMLUnavailable):
+			slog.ErrorContext(ctx, "ML estimation failed", "error", err)
+			writeError(w, http.StatusServiceUnavailable, "ml_unavailable", "Не удалось получить оценку ML", details)
 
 		case errors.Is(err, service.ErrMissingFXRate):
 			writeError(w, http.StatusUnprocessableEntity, "missing_fx_rate", "Нет актуального курса валюты для расчёта", details)
@@ -197,6 +211,7 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 		Status:       calcRun.Status,
 		AsOfDate:     calcRun.AsOfDate,
 		TotalDV01Rub: calcRun.TotalDV01Rub,
+		Incomplete:   calcRun.Incomplete,
 		Positions:    make([]CalculationPositionResponse, len(calcResults)),
 	}
 	for i, result := range calcResults {
@@ -219,6 +234,12 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 			DV01:               result.DV01,
 			Source:             result.DataSource,
 			MarketDate:         result.MarketDate,
+		}
+		if result.DurationEstimate != nil {
+			response.Positions[i].DurationEstimate = json.RawMessage(*result.DurationEstimate)
+		}
+		if result.ConvexityEstimate != nil {
+			response.Positions[i].ConvexityEstimate = json.RawMessage(*result.ConvexityEstimate)
 		}
 	}
 

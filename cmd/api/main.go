@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/iriski-app/backend/internal/api"
+	"github.com/iriski-app/backend/internal/clients/ml"
 	"github.com/iriski-app/backend/internal/service"
 	"github.com/iriski-app/backend/internal/storage/postgres"
 )
@@ -44,6 +45,18 @@ func run() error {
 
 	store := postgres.NewStore(db)
 	svc := service.NewService(store)
+	if address := os.Getenv("ML_GRPC_ADDRESS"); address != "" {
+		client, err := ml.NewClient(address, 5*time.Second)
+		if err != nil {
+			return fmt.Errorf("create ML client: %w", err)
+		}
+		defer func() {
+			if err := client.Close(); err != nil {
+				slog.Error("close ML client", "error", err)
+			}
+		}()
+		svc.ML = client
+	}
 	handler := api.NewHandler(svc)
 	router := api.NewRouter(handler)
 	addr := os.Getenv("HTTP_ADDR")
@@ -55,7 +68,7 @@ func run() error {
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      35 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 

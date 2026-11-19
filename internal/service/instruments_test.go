@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -137,5 +138,68 @@ func TestGetInstrumentRejectsInvalidSourceBeforeStorage(t *testing.T) {
 	_, err := NewService(&fakeStore{}).GetInstrument(context.Background(), "RU000A0JX0J2", "unknown")
 	if !errors.Is(err, ErrInvalidSource) {
 		t.Fatalf("error = %v, want ErrInvalidSource", err)
+	}
+}
+
+func TestGetInstrumentEstimateStatus(t *testing.T) {
+	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name                                                                        string
+		configured, exact, priceAvailable, featuresAvailable, modelReady, missingFX bool
+		want                                                                        string
+	}{
+		{"possible", true, true, true, true, true, false, CalculationEstimatePossible},
+		{"not configured", false, true, true, true, false, false, CalculationUnavailable},
+		{"calendar unknown", true, false, true, true, true, false, CalculationUnavailable},
+		{"price missing", true, true, false, true, true, false, CalculationUnavailable},
+		{"features missing", true, true, true, false, true, false, CalculationUnavailable},
+		{"model unavailable", true, true, true, true, false, false, CalculationUnavailable},
+		{"FX rate unavailable", true, true, true, true, true, true, CalculationUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := uuid.New()
+			price, accrued := 100.0, 0.0
+			data := models.MarketData{
+				InstrumentID: id, Source: models.SourceMoex, TradeDate: date, PriceClean: &price,
+				AccruedInt: &accrued, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
+			}
+			if !tc.priceAvailable {
+				data.PriceClean = nil
+			}
+			if tc.missingFX {
+				data.PriceCurrency = new("USD")
+			}
+			store := &fakeStore{
+				GetInstrumentFunc:       func(context.Context, string) (models.Instrument, error) { return models.Instrument{ID: id}, nil },
+				GetLatestMarketDateFunc: func(context.Context, models.Source, time.Time) (time.Time, error) { return date, nil },
+				GetMarketDataFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.MarketData, error) {
+					return data, nil
+				},
+				GetFXRateFunc: func(context.Context, string, string, time.Time) (models.FXRate, error) {
+					return models.FXRate{}, gorm.ErrRecordNotFound
+				},
+				GetBondFeaturesFunc: func(context.Context, uuid.UUID, models.Source, time.Time) (models.BondFeatures, error) {
+					if !tc.featuresAvailable {
+						return models.BondFeatures{}, gorm.ErrRecordNotFound
+					}
+					maturity := date.AddDate(1, 0, 0)
+					return models.BondFeatures{SettlementDate: &date, MaturityDate: &maturity, YieldDate: &maturity, CouponType: new("fixed"), IsStructured: new(false), SettlementCalendarExact: &tc.exact, Currency: new("RUB"), FaceValue: new(1000.0)}, nil
+				},
+			}
+			svc := NewService(store)
+			if tc.configured {
+				svc.ML = estimateReadinessStub{ready: tc.modelReady}
+			}
+			info, err := svc.GetInstrument(context.Background(), "RU000A0JX0J2", models.SourceMoex)
+			if err != nil || info.CalculationStatus != tc.want || info.ReadyForCalculation {
+				t.Fatalf("info=%+v error=%v", info, err)
+			}
+			if tc.name == "model unavailable" && !slices.Contains(info.MissingParameters, "ml_model_unavailable") {
+				t.Fatalf("missing model availability reason: %v", info.MissingParameters)
+			}
+			if tc.missingFX && !slices.Contains(info.MissingParameters, "fx_rate_USD") {
+				t.Fatalf("missing FX reason: %v", info.MissingParameters)
+			}
+		})
 	}
 }
