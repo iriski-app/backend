@@ -61,7 +61,11 @@ func (s *Service) GetInstrument(
 					if featureErr == nil {
 						missing := missingEstimateFeatures(features)
 						if len(missing) == 0 {
-							status = CalculationEstimatePossible
+							if s.metricAvailable(ctx) {
+								status = CalculationEstimatePossible
+							} else {
+								missing = append(missing, "ml_model_unavailable")
+							}
 						}
 						missingParams = append(missingParams, missing...)
 					} else {
@@ -84,4 +88,15 @@ func (s *Service) GetInstrument(
 		}, nil
 	}
 	return InstrumentInfo{}, err
+}
+
+func (s *Service) metricAvailable(ctx context.Context) bool {
+	client, ok := s.ML.(metricReadinessClient)
+	if !ok {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	ready, err := client.GetReadiness(ctx)
+	return err == nil && ready != nil && ready.MetricReady
 }

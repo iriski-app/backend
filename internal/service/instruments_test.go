@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -143,15 +144,16 @@ func TestGetInstrumentRejectsInvalidSourceBeforeStorage(t *testing.T) {
 func TestGetInstrumentEstimateStatus(t *testing.T) {
 	date := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
-		name                                                 string
-		configured, exact, priceAvailable, featuresAvailable bool
-		want                                                 string
+		name                                                             string
+		configured, exact, priceAvailable, featuresAvailable, modelReady bool
+		want                                                             string
 	}{
-		{"possible", true, true, true, true, CalculationEstimatePossible},
-		{"not configured", false, true, true, true, CalculationUnavailable},
-		{"calendar unknown", true, false, true, true, CalculationUnavailable},
-		{"price missing", true, true, false, true, CalculationUnavailable},
-		{"features missing", true, true, true, false, CalculationUnavailable},
+		{"possible", true, true, true, true, true, CalculationEstimatePossible},
+		{"not configured", false, true, true, true, false, CalculationUnavailable},
+		{"calendar unknown", true, false, true, true, true, CalculationUnavailable},
+		{"price missing", true, true, false, true, true, CalculationUnavailable},
+		{"features missing", true, true, true, false, true, CalculationUnavailable},
+		{"model unavailable", true, true, true, true, false, CalculationUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			id := uuid.New()
@@ -176,11 +178,14 @@ func TestGetInstrumentEstimateStatus(t *testing.T) {
 			}
 			svc := NewService(store)
 			if tc.configured {
-				svc.ML = estimateFunc(nil)
+				svc.ML = estimateReadinessStub{ready: tc.modelReady}
 			}
 			info, err := svc.GetInstrument(context.Background(), "RU000A0JX0J2", models.SourceMoex)
 			if err != nil || info.CalculationStatus != tc.want || info.ReadyForCalculation {
 				t.Fatalf("info=%+v error=%v", info, err)
+			}
+			if tc.name == "model unavailable" && !slices.Contains(info.MissingParameters, "ml_model_unavailable") {
+				t.Fatalf("missing model availability reason: %v", info.MissingParameters)
 			}
 		})
 	}
