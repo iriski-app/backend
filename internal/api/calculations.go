@@ -128,6 +128,15 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 		positions,
 	)
 	if err != nil {
+		var positionError *service.PositionDataError
+		var details any
+		if errors.As(err, &positionError) {
+			positionDetails := map[string]any{"instrument_id": positionError.InstrumentID, "isin": positionError.ISIN, "field": positionError.Field, "as_of_date": positionError.AsOfDate.Format("2006-01-02")}
+			if positionError.Currency != "" {
+				positionDetails["currency"] = positionError.Currency
+			}
+			details = positionDetails
+		}
 		switch {
 		case errors.Is(err, service.ErrInvalidParameter):
 			writeError(
@@ -138,23 +147,20 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 				nil,
 			)
 
+		case errors.Is(err, service.ErrPlaceHolder):
+			writeError(w, http.StatusUnprocessableEntity, "missing_duration", "Отсутствует дюрация для расчёта", details)
+
 		case errors.Is(err, service.ErrMissingParameter):
 			writeError(
 				w,
 				http.StatusUnprocessableEntity,
 				"missing_parameter",
 				"Недостаточно рыночных данных для расчёта",
-				nil,
+				details,
 			)
 
-		case errors.Is(err, service.ErrPlaceHolder):
-			writeError(
-				w,
-				http.StatusUnprocessableEntity,
-				"missing_duration",
-				"Отсутствует дюрация для расчёта",
-				nil,
-			)
+		case errors.Is(err, service.ErrMissingFXRate):
+			writeError(w, http.StatusUnprocessableEntity, "missing_fx_rate", "Нет актуального курса валюты для расчёта", details)
 
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			writeError(
@@ -195,15 +201,24 @@ func newCalculationResponse(calcRun models.CalcRun, calcResults []models.CalcRes
 	}
 	for i, result := range calcResults {
 		response.Positions[i] = CalculationPositionResponse{
-			ID:           result.ID,
-			InstrumentID: result.InstrumentID,
-			Side:         result.Side,
-			Quantity:     result.Quantity,
-			MarketValue:  result.FairValue,
-			DurationMod:  result.DurationMod,
-			DV01:         result.DV01,
-			Source:       result.DataSource,
-			MarketDate:   result.MarketDate,
+			ID:                 result.ID,
+			InstrumentID:       result.InstrumentID,
+			Side:               result.Side,
+			Quantity:           result.Quantity,
+			MarketValue:        result.FairValue,
+			Currency:           result.Currency,
+			PriceCurrency:      result.PriceCurrency,
+			AccruedIntCurrency: result.AccruedIntCurrency,
+			PriceFXRate:        result.PriceFXRate,
+			AccruedIntFXRate:   result.AccruedIntFXRate,
+			PriceFXDate:        result.PriceFXDate,
+			AccruedIntFXDate:   result.AccruedIntFXDate,
+			PriceFXSource:      result.PriceFXSource,
+			AccruedIntFXSource: result.AccruedIntFXSource,
+			DurationMod:        result.DurationMod,
+			DV01:               result.DV01,
+			Source:             result.DataSource,
+			MarketDate:         result.MarketDate,
 		}
 	}
 

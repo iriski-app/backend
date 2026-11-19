@@ -88,3 +88,50 @@ func TestSettlementDateRejectsMissingCalendar(t *testing.T) {
 		t.Fatalf("got error %v, want invalid calendar", err)
 	}
 }
+
+func TestSettlementDateUsesCurrencyCalendar(t *testing.T) {
+	closed := 0
+	client := &calendarClient{entries: map[int][]moex.SettlementCalendar{2026: {
+		{TradeDate: "2026-10-01", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-02", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-05", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-06", CurrencyID: "CNY", StockMarket: &closed},
+		{TradeDate: "2026-10-07", CurrencyID: "CNY", StockMarket: &closed},
+	}}}
+	calc := convexityCalculator{client: client, calendars: make(map[int]settlementCalendar), currency: "CNY"}
+	got, err := calc.settlementDate(context.Background(), time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil || got.Format("2006-01-02") != "2026-10-08" {
+		t.Fatalf("got %s, error %v", got, err)
+	}
+}
+
+func TestYuanSettlementCycleTransition(t *testing.T) {
+	closed := 0
+	for _, tc := range []struct {
+		name     string
+		board    string
+		trade    string
+		want     string
+		holidays []moex.SettlementCalendar
+	}{
+		{name: "T+2", board: "TQOY", trade: "2023-07-24", want: "2023-07-26"},
+		{name: "T+2 across weekend", board: "TQOY", trade: "2023-07-28", want: "2023-08-01"},
+		{name: "T+1 on transition", board: "TQOY", trade: "2023-07-31", want: "2023-08-01"},
+		{name: "T+2 with holiday", board: "TQOY", trade: "2023-07-24", want: "2023-07-27", holidays: []moex.SettlementCalendar{{TradeDate: "2023-07-25", CurrencyID: "CNY", StockMarket: &closed}}},
+		{name: "other board unchanged", board: "TQCB", trade: "2023-07-24", want: "2023-07-25"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entries := append([]moex.SettlementCalendar{{TradeDate: "2023-01-01", CurrencyID: "CNY", StockMarket: &closed}}, tc.holidays...)
+			client := &calendarClient{entries: map[int][]moex.SettlementCalendar{2023: entries}}
+			calc := convexityCalculator{client: client, calendars: make(map[int]settlementCalendar), currency: "CNY", board: tc.board}
+			trade, err := time.Parse("2006-01-02", tc.trade)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := calc.settlementDate(context.Background(), trade)
+			if err != nil || got.Format("2006-01-02") != tc.want {
+				t.Fatalf("got %s, error %v, want %s", got.Format("2006-01-02"), err, tc.want)
+			}
+		})
+	}
+}

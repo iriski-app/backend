@@ -52,7 +52,7 @@ func TestGetInstrumentData(t *testing.T) {
 			data := models.MarketData{
 				InstrumentID: instrument.ID, Source: wantSource,
 				TradeDate:  time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
-				PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity,
+				PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration, Convexity: &convexity, PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 			}
 			if tt.missing == "price" || tt.missing == "all" {
 				data.PriceClean = nil

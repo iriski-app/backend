@@ -20,7 +20,7 @@ func TestRunSuccess(t *testing.T) {
 	addCollectorPosition(client, "TQCB", "BOND2", "RU000A0JTK38")
 	client.history["TQCB"][0].Duration = nil
 	store.onSave = func() {
-		if len(client.calls) != 4 {
+		if len(client.calls) != 6 {
 			t.Errorf("saving started before all requests completed: %v", client.calls)
 		}
 	}
@@ -201,7 +201,7 @@ func TestRunEmptyDate(t *testing.T) {
 	if err != nil || result.Status != models.ETLStatusSuccess || result.RowsLoaded != 0 || result.RowsRejected != 0 {
 		t.Fatalf("unexpected result: %+v, error: %v", result, err)
 	}
-	if store.saveCalls != 0 || store.finishCalls != 1 || len(client.calls) != 4 {
+	if store.saveCalls != 0 || store.finishCalls != 1 || len(client.calls) != 6 {
 		t.Fatalf("unexpected calls: store %+v, client %v", store, client.calls)
 	}
 }

@@ -66,7 +66,9 @@ func (h *Handler) GetInstrument(w http.ResponseWriter, r *http.Request) {
 	if info.MarketData != nil {
 		response.PriceType = &info.MarketData.PriceType
 		response.PriceClean = info.MarketData.PriceClean
+		response.PriceCurrency = info.MarketData.PriceCurrency
 		response.AccruedInt = info.MarketData.AccruedInt
+		response.AccruedIntCurrency = info.MarketData.AccruedIntCurrency
 		response.DurationMod = info.MarketData.DurationMod
 		response.Convexity = info.MarketData.Convexity
 		response.YTM = info.MarketData.YTM

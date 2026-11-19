@@ -30,6 +30,10 @@ type instrumentTestStore struct {
 	marketCalls   int
 }
 
+func (s *instrumentTestStore) GetLatestCommonMarketDate(ctx context.Context, ids []uuid.UUID, source models.Source, cutoff time.Time) (time.Time, error) {
+	return s.GetLatestMarketDate(ctx, source, cutoff)
+}
+
 func (s *instrumentTestStore) GetInstrument(_ context.Context, _ string) (models.Instrument, error) {
 	s.lookupCalls++
 	return s.instrument, s.instrumentErr
@@ -91,6 +95,7 @@ func TestGetInstrument(t *testing.T) {
 				marketData: models.MarketData{
 					InstrumentID: instrument.ID, TradeDate: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
 					PriceType: "trade", PriceClean: &price, AccruedInt: &accrued, DurationMod: &duration,
+					PriceCurrency: new("RUB"), AccruedIntCurrency: new("RUB"),
 					Convexity: &convexity, YTM: &ytm, LoadedAt: loadedAt,
 				},
 			}
