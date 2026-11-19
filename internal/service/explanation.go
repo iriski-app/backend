@@ -14,6 +14,7 @@ import (
 	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/risk"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -67,13 +68,20 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 		req.Method = mlv1.ExplanationMethod_EXPLANATION_METHOD_DURATION_CONVEXITY
 		req.YieldShiftBp = new(1.0)
 	} else {
-		for _, p := range req.Positions {
-			p.Inputs = nil
-		}
+		clearExplanationDetails(req)
 	}
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 	response, err := client.ExplainCalculation(ctx, req)
+	retriedSummary := hasCalculationDetails && status.Code(err) == codes.DataLoss && ctx.Err() == nil
+	if retriedSummary {
+		slog.WarnContext(ctx, "detailed ML explanation did not pass validation", "request_id", req.RequestId)
+		clearExplanationDetails(req)
+		req.RequestId = uuid.NewString()
+		response, err = client.ExplainCalculation(ctx, req)
+	}
 	if err != nil {
-		slog.WarnContext(ctx, "ML explanation failed", "request_id", req.RequestId, "grpc_code", status.Code(err))
+		slog.WarnContext(ctx, "ML explanation failed", "request_id", req.RequestId, "grpc_code", status.Code(err).String())
 		return models.LLMExplanation{}, fmt.Errorf("%w: %w", ErrMLUnavailable, err)
 	}
 	if response == nil || response.RequestId != req.RequestId || response.CalculationId != req.CalculationId || !response.Verified || strings.TrimSpace(response.Text) == "" || strings.TrimSpace(response.ModelVersion) == "" || len(response.FactIds) == 0 {
@@ -83,7 +91,11 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 	if err != nil {
 		return models.LLMExplanation{}, err
 	}
-	limitations, err := json.Marshal(response.Limitations)
+	limitationTexts := response.Limitations
+	if retriedSummary {
+		limitationTexts = []string{"Подробный ответ не прошёл проверку. Показано проверенное пояснение итогов."}
+	}
+	limitations, err := json.Marshal(limitationTexts)
 	if err != nil {
 		return models.LLMExplanation{}, err
 	}
@@ -96,6 +108,14 @@ func (s *Service) ExplainDV01(ctx context.Context, sessionID, calcID uuid.UUID) 
 		return models.LLMExplanation{}, err
 	}
 	return explanation, nil
+}
+
+func clearExplanationDetails(req *mlv1.ExplainCalculationRequest) {
+	req.Method = mlv1.ExplanationMethod_EXPLANATION_METHOD_UNSPECIFIED
+	req.YieldShiftBp = nil
+	for _, p := range req.Positions {
+		p.Inputs = nil
+	}
 }
 
 func explanationInputs(position models.CalcResult, cents int64) *mlv1.PositionCalculationInputs {

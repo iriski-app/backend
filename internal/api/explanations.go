@@ -39,6 +39,9 @@ func (h *Handler) ExplainCalculation(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
 		writeError(w, 504, "explanation_timeout", "Время ожидания объяснения истекло", nil)
 		return
+	case status.Code(err) == codes.DataLoss:
+		writeError(w, http.StatusBadGateway, "explanation_unverified", "Объяснение не прошло проверку", nil)
+		return
 	case errors.Is(err, service.ErrMLUnavailable):
 		writeError(w, 503, "explanation_unavailable", "Не удалось получить объяснение", nil)
 		return
