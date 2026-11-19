@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/iriski-app/backend/internal/service"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
@@ -132,7 +134,7 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		switch {
-		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
 			writeError(w, http.StatusGatewayTimeout, "calculation_timeout", "Расчёт занял слишком много времени", nil)
 		case errors.Is(err, service.ErrInvalidParameter):
 			writeError(
@@ -152,6 +154,8 @@ func (h *Handler) Calculation(w http.ResponseWriter, r *http.Request) {
 				nil,
 			)
 
+		case errors.Is(err, service.ErrMLUnsupportedInput):
+			writeError(w, http.StatusUnprocessableEntity, "ml_unsupported_input", "Бумага или её параметры вне области применения ML-модели", nil)
 		case errors.Is(err, service.ErrMLUnavailable):
 			slog.ErrorContext(ctx, "ML estimation failed", "error", err)
 			writeError(w, http.StatusServiceUnavailable, "ml_unavailable", "Не удалось получить оценку ML", nil)

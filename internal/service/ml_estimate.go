@@ -12,11 +12,17 @@ import (
 	"github.com/google/uuid"
 	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 )
 
 type featureStore interface {
 	GetBondFeatures(context.Context, uuid.UUID, models.Source, time.Time) (models.BondFeatures, error)
+}
+
+type metricReadinessClient interface {
+	GetReadiness(context.Context) (*mlv1.ReadinessResponse, error)
 }
 
 type metricEstimate struct {
@@ -60,7 +66,7 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 	req := &mlv1.EstimateMissingMetricRequest{RequestId: uuid.NewString(), InstrumentId: market.InstrumentID.String(), AsOfDate: market.TradeDate.Format("2006-01-02"), Metric: kind, Features: features}
 	resp, err := s.ML.EstimateMissingMetric(ctx, req)
 	if err != nil {
-		return 0, "", fmt.Errorf("%w: %v", ErrMLUnavailable, err)
+		return 0, "", s.metricRPCError(ctx, err)
 	}
 	if resp == nil || resp.RequestId != req.RequestId || resp.InstrumentId != req.InstrumentId || resp.AsOfDate != req.AsOfDate || resp.Metric != req.Metric || resp.Source != mlv1.MetricSource_METRIC_SOURCE_CATBOOST || resp.ModelVersion == "" || !validEstimate(resp.Value) || (resp.Low != nil && (!validEstimate(*resp.Low) || *resp.Low > resp.Value)) || (resp.High != nil && (!validEstimate(*resp.High) || *resp.High < resp.Value)) {
 		return 0, "", fmt.Errorf("%w: invalid ML response", ErrMLUnavailable)
@@ -70,6 +76,22 @@ func (s *Service) estimateMetric(ctx context.Context, market models.MarketData, 
 		return 0, "", fmt.Errorf("encode ML metadata: %w", err)
 	}
 	return resp.Value, string(metadata), nil
+}
+
+func (s *Service) metricRPCError(ctx context.Context, err error) error {
+	switch status.Code(err) {
+	case codes.InvalidArgument, codes.OutOfRange:
+		return fmt.Errorf("%w: %w", ErrMLUnsupportedInput, err)
+	case codes.FailedPrecondition:
+		// Python uses FailedPrecondition both for unloaded models and for bonds
+		// outside a loaded model's training domain.
+		if client, ok := s.ML.(metricReadinessClient); ok {
+			if ready, readinessErr := client.GetReadiness(ctx); readinessErr == nil && ready != nil && ready.MetricReady {
+				return fmt.Errorf("%w: %w", ErrMLUnsupportedInput, err)
+			}
+		}
+	}
+	return fmt.Errorf("%w: %w", ErrMLUnavailable, err)
 }
 
 func missingEstimateFeatures(f models.BondFeatures) []string {

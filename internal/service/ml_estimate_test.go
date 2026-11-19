@@ -12,12 +12,43 @@ import (
 	"github.com/google/uuid"
 	mlv1 "github.com/iriski-app/backend/internal/clients/ml/v1"
 	"github.com/iriski-app/backend/internal/storage/models"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type estimateFunc func(context.Context, *mlv1.EstimateMissingMetricRequest) (*mlv1.EstimateMissingMetricResponse, error)
 
 func (f estimateFunc) EstimateMissingMetric(ctx context.Context, r *mlv1.EstimateMissingMetricRequest) (*mlv1.EstimateMissingMetricResponse, error) {
 	return f(ctx, r)
+}
+
+type estimateReadinessStub struct {
+	estimateFunc
+	ready bool
+}
+
+func (s estimateReadinessStub) GetReadiness(context.Context) (*mlv1.ReadinessResponse, error) {
+	return &mlv1.ReadinessResponse{MetricReady: s.ready}, nil
+}
+
+func TestMetricRPCErrorsPreserveStatus(t *testing.T) {
+	for _, tc := range []struct {
+		code  codes.Code
+		ready bool
+		want  error
+	}{
+		{codes.DeadlineExceeded, true, ErrMLUnavailable},
+		{codes.Unavailable, true, ErrMLUnavailable},
+		{codes.InvalidArgument, true, ErrMLUnsupportedInput},
+		{codes.FailedPrecondition, true, ErrMLUnsupportedInput},
+		{codes.FailedPrecondition, false, ErrMLUnavailable},
+	} {
+		svc := &Service{ML: estimateReadinessStub{ready: tc.ready}}
+		err := svc.metricRPCError(context.Background(), status.Error(tc.code, "test"))
+		if !errors.Is(err, tc.want) || status.Code(err) != tc.code {
+			t.Errorf("code=%v ready=%t: %v", tc.code, tc.ready, err)
+		}
+	}
 }
 
 func TestCalculationUsesMLOnlyForMissingMetrics(t *testing.T) {

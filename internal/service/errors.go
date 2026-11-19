@@ -13,4 +13,5 @@ var (
 	ErrPlaceHolder         = errors.New("PLACEHOLDER")
 	ErrMissingParameter    = errors.New("missing required parameter")
 	ErrMLUnavailable       = errors.New("ML estimation unavailable")
+	ErrMLUnsupportedInput  = errors.New("bond outside the ML model domain")
 )
